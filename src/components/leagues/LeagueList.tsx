@@ -19,6 +19,8 @@ import { League } from "../../utils/leagues";
 
 interface Props {
   leagues: League[];
+  isLoading: boolean; // Add isLoading prop
+  error: string | null; // Add error prop
   onCreate: () => void;
   onJoin: () => void;
   emptyMsg?: string;
@@ -26,6 +28,8 @@ interface Props {
 
 export default function LeagueCard({
   leagues,
+  isLoading, // Destructure new props
+  error,
   onCreate,
   onJoin,
   emptyMsg = "You haven’t joined or created a league yet.",
@@ -73,25 +77,46 @@ export default function LeagueCard({
           </TableHeader>
 
           <TableBody className="divide-y divide-gray-100 dark:divide-white/[0.05]">
-            {leagues.length === 0 ? (
+            {/* Handle Loading State */}
+            {isLoading && (
+                 <TableRow>
+                    <TableCell className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                      Loading your leagues...
+                    </TableCell>
+                </TableRow>
+            )}
+            {/* Handle Error State */}
+            {!isLoading && error && (
+                 <TableRow>
+                    <TableCell className="px-4 py-10 text-center text-sm text-red-600 dark:text-red-400">
+                      {error}
+                    </TableCell>
+                </TableRow>
+            )}
+            {/* Handle Empty State */}
+            {!isLoading && !error && leagues.length === 0 && (
               <TableRow>
                 <TableCell className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                   {emptyMsg}
                 </TableCell>
               </TableRow>
-            ) : (
+            )}
+            {/* Render League Rows */}
+            {!isLoading && !error && leagues.length > 0 && (
               leagues.map((lg) => (
                 <TableRow key={lg.id}>
                   <TableCell className="px-4 py-3 sm:px-6 text-theme-sm font-medium text-gray-800 dark:text-white/90">
                     {lg.name}
                   </TableCell>
                   <TableCell className="px-4 py-3 sm:px-6 text-theme-sm font-mono text-gray-600 dark:text-gray-400">
+                    {/* Show code only for admin? Or always? Consider security/privacy */}
                     {lg.code}
                   </TableCell>
                   <TableCell className="px-4 py-3 sm:px-6 text-theme-sm text-gray-600 dark:text-gray-400">
-                    {lg.members.length} member{lg.members.length !== 1 && "s"}
+                    {lg.members?.length ?? 0} member{lg.members?.length !== 1 ? "s" : ""}
                   </TableCell>
                   <TableCell className="px-4 py-3 sm:px-6 text-theme-sm text-gray-600 dark:text-gray-400">
+                    {/* Ensure Link component is correctly imported */}
                     <Link to={`/leagues/${lg.id}`}>
                       <Button size="sm" variant="outline">View</Button>
                     </Link>
