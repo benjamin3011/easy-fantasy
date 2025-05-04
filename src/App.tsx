@@ -6,6 +6,7 @@ import SignIn from "./pages/Authentication/SignIn";
 import SignUp from "./pages/Authentication/SignUp";
 import ResetPassword from "./pages/Authentication/ResetPassword";
 import Dashboard from './pages/Dashboard';
+import AdminPage from './pages/AdminPage';
 import LeaguesPage   from "./pages/LeaguesPage";
 import LeagueDetail from "./pages/LeagueDetail";
 import PWAPrompt from 'react-ios-pwa-prompt';
@@ -23,6 +24,7 @@ function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/leagues"  element={<LeaguesPage />} />
           <Route path="/leagues/:id" element={<LeagueDetail />} /> 
+          <Route path="/admin" element={<AdminPage />} />
         </Route>
         {/* public */}
         <Route path="/signin" element={<SignIn />} />

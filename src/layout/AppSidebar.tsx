@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 
+// --- Import useAuth ---
+import { useAuth } from "../context/AuthContext"; 
+
 // Assume these icons are imported from an icon library
 import {
   ChatIcon,
@@ -19,6 +22,7 @@ type NavItem = {
   icon: React.ReactNode;
   path?: string;
   subItems?: { name: string; path: string; pro?: boolean; new?: boolean }[];
+  adminOnly?: boolean; // Add flag for admin items
 };
 
 const navItems: NavItem[] = [
@@ -36,7 +40,13 @@ const navItems: NavItem[] = [
     icon: <UserCircleIcon />,
     name: "User Profile",
     path: "/profile",
-  },  
+  },
+  {
+    icon: <UserCircleIcon />,
+    name: "Admin",
+    path: "/admin",
+    adminOnly: true, // Mark as admin-only
+  },    
 ];
 
 const othersItems: NavItem[] = [
@@ -65,6 +75,8 @@ const supportItems: NavItem[] = [
 ];
 
 const AppSidebar: React.FC = () => {
+  // --- Get user and admin status ---
+  const { isAdmin } = useAuth();
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const location = useLocation();
 
@@ -110,7 +122,7 @@ const AppSidebar: React.FC = () => {
     if (!submenuMatched) {
       setOpenSubmenu(null);
     }
-  }, [location, isActive]);
+  }, [location, isActive, isAdmin]);
 
   useEffect(() => {
     if (openSubmenu !== null) {
@@ -145,7 +157,8 @@ const AppSidebar: React.FC = () => {
     menuType: "main" | "support" | "others"
   ) => (
     <ul className="flex flex-col gap-4">
-      {items.map((nav, index) => (
+      {items.filter(item => !item.adminOnly || isAdmin)
+      .map((nav, index) => (
         <li key={nav.name}>
           {nav.subItems ? (
             <button
