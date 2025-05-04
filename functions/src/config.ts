@@ -31,6 +31,8 @@ export const hosts = {
  */
 export const config = {
     CURRENT_NFL_SEASON: "2024", // Update as needed
+    SEASON_START_DATE_REF: new Date('2024-09-05'), // First Wednesday of the season
+    MAX_NFL_WEEKS: 18, // Max number of weeks in the NFL season
     RELEVANT_PLAYER_POSITIONS: ['QB', 'RB', 'WR', 'TE'],
 };
 

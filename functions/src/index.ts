@@ -25,7 +25,4 @@ export * from './leagues';
 // Admin Callables
 export * from './admin';
 
-// If you have functions defined directly in index.ts (avoid if possible), export them too
-// export const myDirectFunction = ...
-
 console.log("Firebase Functions initialized and exported."); // Log on deploy/cold start
