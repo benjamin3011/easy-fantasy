@@ -16,6 +16,9 @@ export * from './email';
 // Data Sync Triggers & Callables
 export * from './dataSync';
 
+// Game Stats Sync Triggers
+export * from './statsSync';
+
 // News Triggers & Callables
 export * from './news';
 

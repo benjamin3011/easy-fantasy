@@ -52,6 +52,13 @@ export const dataSyncOptions = {
     secrets: [secrets.TANK01_KEY], // Secrets needed by data sync
 };
 
+export const statsSyncOptions = { // For fetching/processing game stats
+    ...functionOptions,
+    timeoutSeconds: 540, // Allow longer time for fetching multiple games
+    memory: "1GiB" as MemoryOption, // Increase memory for processing game data
+    secrets: [secrets.TANK01_KEY],
+};
+
 export const emailOptions = {
     ...functionOptions,
     secrets: [secrets.AWS_ID, secrets.AWS_SECRET, secrets.AWS_REGION, secrets.MAIL_FROM], // Secrets needed by email functions
