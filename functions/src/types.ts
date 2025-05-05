@@ -1,35 +1,23 @@
 // src/types.ts
 import * as admin from "firebase-admin";
 
-// --- Calculation Input Types (Derived from Raw Stats for Calculators) ---
-export interface PassingStatsCalc { passYds?: number; passTD?: number; twoPtPass?: number; int?: number; }
-export interface RushingStatsCalc { rushYds?: number; rushTD?: number; twoPtRush?: number; }
-export interface ReceivingStatsCalc { recYds?: number; recTD?: number; twoPtRec?: number; }
-export interface PlayerDefenseStatsCalc { fumLost?: number; } // Fumble lost for QB/RB/WR/TE scoring
-
-export interface PlayerStatsForCalc { // Structure for calculatePlayerFantasyPoints
-  Passing?: PassingStatsCalc;
-  Rushing?: RushingStatsCalc;
-  Receiving?: ReceivingStatsCalc;
-  // Fumble source might be Defense or Fumbles category in raw stats
-  Defense?: PlayerDefenseStatsCalc;
-}
 export type PlayerPosition = 'QB' | 'RB' | 'WR' | 'TE';
 
+// Types needed for TEAM point calculations
 export interface TeamDefenseStatsCalc { // Structure for calculateDefensePoints (Parsed from DST)
-  ptsAllowed?: number; defensiveInterceptions?: number; fumblesRecovered?: number;
-  sacks?: number; safeties?: number; defTD?: number; ydsAllowed?: number; // Optional: Yards allowed for additional calculations
-}
+    ptsAllowed?: number; defInt?: number; fumRec?: number;
+    sacks?: number; safeties?: number; defTD?: number;
+  }
 export interface SpecialTeamsStatsCalc { // Structure for calculateSpecialTeamsPoints (Aggregated)
-  xpMade?: number; fgMade?: number;
-  kickReturnTD?: number; puntReturnTD?: number;
-  xpReturn?: number;
+    xpMade?: number; fgMade?: number;
+    kickReturnTD?: number; puntReturnTD?: number; fumbleReturnTD?: number;
+    xpReturn?: number;
 }
 export interface TeamGameStatsForCalc { // Combined structure for team unit calcs
-     passingStats?: { totalPassingYards?: number; totalPassingTDs?: number; }; // From Aggregation
-     rushingStats?: { totalRushingYards?: number; totalRushingTDs?: number; }; // From Aggregation
-     teamDefData?: TeamDefenseStatsCalc; // Parsed from DST
-     specialTeamsStats?: SpecialTeamsStatsCalc; // From Aggregation
+    passingStats?: { totalPassingYards?: number; totalPassingTDs?: number; totalInterceptionsThrown?: number; };
+    rushingStats?: { totalRushingYards?: number; totalRushingTDs?: number; };
+    teamDefData?: TeamDefenseStatsCalc;
+    specialTeamsStats?: SpecialTeamsStatsCalc;
 }
 
 // --- API Response Interfaces (Based on paste-3.txt and previous definitions) ---
@@ -39,8 +27,10 @@ export interface BoxScorePlayerGameStatsAPI {
     teamID?: string; gameID?: string; longName?: string; playerID?: string; team?: string; teamAbv?: string;
     Passing?: Record<string, unknown>; Rushing?: Record<string, unknown>; Receiving?: Record<string, unknown>;
     Defense?: Record<string, unknown>; Kicking?: Record<string, unknown>; Punting?: Record<string, unknown>;
-    fantasyPoints?: string; // API calculation
-    fantasyPointsDefault?: { standard?: string; PPR?: string; halfPPR?: string; }; // Alternative key
+    Fumbles?: Record<string, unknown>;
+    // API's Fantasy Points calculations
+    fantasyPoints?: string; // The main calculated value based on your params
+    fantasyPointsDefault?: { standard?: string; PPR?: string; halfPPR?: string; }; // Default calculations
     scoringPlays?: unknown[]; snapCounts?: Record<string, unknown>;
 }
 // Box Score Team/DST Details
@@ -101,9 +91,10 @@ export interface FirestorePlayerGameStat {
     week: number;
     nflTeamId?: string;
     rawBoxScoreStats?: BoxScorePlayerGameStatsAPI; // Keep full raw stats
-    apiFantasyPoints?: { standard: number; ppr: number; halfPpr: number; }; // API's calculation
-    // ADD Field for YOUR calculated fantasy points
-    fantasyPoints?: number; // Your custom calculation result
+    // *** Store the parsed fantasy points directly from the API response ***
+    fantasyPoints?: number; // Use this for the API's calculated value based on your rules
+    // Optional: Store the API's default calculations if needed for reference
+    apiFantasyPointsDefault?: { standard: number; ppr: number; halfPpr: number; };
     lastUpdated: admin.firestore.Timestamp;
 }
 
@@ -114,12 +105,12 @@ export interface FirestoreTeamGameStat {
     week: number;
     rawTeamBoxScoreStats?: Record<string, unknown>;
     rawDefBoxScoreStats?: Record<string, unknown>;
-    // ADD Fields for YOUR calculated unit points
+    // Fields for YOUR calculated team unit points
     fantasyPointsPassing?: number;
     fantasyPointsRushing?: number;
     fantasyPointsDefense?: number;
     fantasyPointsSpecialTeams?: number;
-    // Optional: Store aggregated stats used for calc (for debugging)
+    // Optional: Store aggregated stats used for calc
     aggregatedStatsForCalc?: TeamGameStatsForCalc;
     lastUpdated: admin.firestore.Timestamp;
 }
