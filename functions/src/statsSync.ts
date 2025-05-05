@@ -84,8 +84,17 @@ async function fetchAndProcessSingleGameStats(gameId: string, week: number, seas
         const gameBatch = db.batch();
         let operationsCount = 0;
 
-        // --- Pre-fetch relevant player positions ---
-        if (playerPositionCache.size === 0) { /* ... unchanged caching logic ... */ }
+        // --- Pre-fetch relevant player positions (if cache empty) ---
+        if (playerPositionCache.size === 0) {
+            const relevantPlayersSnapshot = await db.collection('players')
+                 .where('position', 'in', config.RELEVANT_PLAYER_POSITIONS)
+                 .select('position').get();
+            relevantPlayersSnapshot.forEach(doc => {
+                 const pos = doc.data()?.position as PlayerPosition | undefined;
+                 if (pos) playerPositionCache.set(doc.id, pos);
+            });
+            logger.debug(`Cached positions for ${playerPositionCache.size} relevant players.`);
+        }
 
         // --- Process Player Stats ---
         for (const playerId in apiBody.playerStats) {
