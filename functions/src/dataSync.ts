@@ -9,54 +9,12 @@ import { Timestamp } from "firebase-admin/firestore";
 import { dataSyncOptions, secrets, hosts, config } from './config';
 // Import common helpers
 import { calculateCurrentNFLWeek, removeUndefinedFields, safeParseFloat, safeParseInt } from './common';
+// *** Import Types ***
+import {
+    Tank01ApiPlayer, Tank01ApiTeam, Tank01ApiRosterResponse, Tank01ApiTeamsResponse
+} from './types';
 
 const db = admin.firestore();
-
-// --- Interfaces for API Data (Refined, avoiding 'any') ---
-
-interface Tank01ApiInjury {
-    injReturnDate?: string; description?: string; injDate?: string; designation?: string;
-}
-
-// Use Record<string, unknown> for nested stats objects for flexibility
-interface Tank01ApiPlayerStats {
-    gamesPlayed?: string;
-    Defense?: Record<string, unknown>;
-    Rushing?: Record<string, unknown>;
-    Passing?: Record<string, unknown>;
-    Receiving?: Record<string, unknown>;
-    fantasyPointsDefault?: { standard?: string; PPR?: string; halfPPR?: string; };
-}
-
-interface Tank01ApiPlayer {
-    playerID: string; espnID?: string; espnName?: string; longName: string;
-    firstName?: string; lastName?: string; pos: string; teamID: string;
-    team: string; // Abbreviation
-    jerseyNum?: string;
-    injury?: Tank01ApiInjury | string; // API might return object or string
-    espnHeadshot?: string; weight?: string; age?: string; espnLink?: string;
-    bDay?: string; isFreeAgent?: string; // 'True' or 'False'
-    school?: string; height?: string;
-    lastGamePlayed?: string; exp?: string;
-    stats?: Tank01ApiPlayerStats; // Nested stats object
-}
-
-interface Tank01ApiGameSchedule {
-    gameWeek: string; seasonType: string; home: string; away: string;
-}
-
-interface Tank01ApiTeam {
-    teamID: string; teamAbv: string; teamCity?: string; teamName?: string; // Made optional
-    conferenceAbv?: string; division?: string; espnLogo1?: string;
-    byeWeeks?: { [season: string]: string[] };
-    teamSchedule?: { [gameId: string]: Tank01ApiGameSchedule };
-    teamStats?: Record<string, unknown>; // Raw team stats object
-    wins?: string | number; loss?: string | number; tie?: string | number; // Optional
-}
-
-// Define more specific response types
-interface Tank01ApiRosterResponse { body: { roster: Tank01ApiPlayer[] }; } // Sample shows array
-interface Tank01ApiTeamsResponse { body: Tank01ApiTeam[]; }
 
 // --- Axios Helper ---
 const getTank01Headers = () => ({
