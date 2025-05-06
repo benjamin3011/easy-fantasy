@@ -19,6 +19,12 @@ export * from './dataSync';
 // Game Stats Sync Triggers
 export * from './statsSync';
 
+// Schedule Sync Triggers
+export * from './scheduleSync';
+
+// Lineup Processing Triggers
+export * from './lineupProcessing';
+
 // News Triggers & Callables
 export * from './news';
 

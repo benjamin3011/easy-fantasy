@@ -114,3 +114,71 @@ export interface FirestoreTeamGameStat {
     aggregatedStatsForCalc?: TeamGameStatsForCalc;
     lastUpdated: admin.firestore.Timestamp;
 }
+
+// *** NEW: Firestore structure for storing schedule ***
+export interface FirestoreWeeklySchedule {
+    season: number;
+    week: number;
+    games: GameInfoForWeek[]; // Store the array of games fetched from API
+    lastUpdated: admin.firestore.Timestamp;
+}
+
+// Main Player/Team doc structure in Firestore (No average points)
+export interface FirestorePlayer {
+    playerId: string;
+    fullName: string;
+    firstName?: string;
+    lastName?: string;
+    position: PlayerPosition;
+    nflTeamId: string;
+    nflTeamAbbreviation: string;
+    headshotUrl?: string | null;
+    isActive: boolean;
+    injuryData?: Tank01ApiInjury | string | null;
+    status?: string | null;
+    nextOpponent?: string;
+    nextGameId?: string | null;
+    byeWeek?: number | null;
+    lastUpdated: admin.firestore.Timestamp;
+    // Store raw season stats needed for PPG calculation in UI
+    rawSeasonStats?: Tank01ApiPlayerSeasonStats; // Includes gamesPlayed, fantasyPointsDefault
+    apiSeasonFantasyPoints?: { standard: number; ppr: number; halfPpr: number; };
+}
+export interface FirestoreTeam {
+    teamId: string;
+    abbreviation: string;
+    fullName?: string | null;
+    logoUrl?: string | null;
+    nextOpponent?: string;
+    nextGameId?: string | null;
+    byeWeek?: number | null;
+    lastUpdated: admin.firestore.Timestamp;
+    seasonRecord?: { wins: number; losses: number; ties: number; };
+    // Store raw season team stats needed for PPG calculation in UI
+    seasonTeamStats?: Record<string, unknown>;
+}
+
+// Lineup Structure
+export type LineupPosition = 'QB' | 'RB' | 'WR' | 'TE' | 'PassingOffense' | 'RushingOffense' | 'Defense' | 'SpecialTeams';
+export interface LineupPick {
+    id: string; // PlayerID or TeamID
+    type: 'player' | 'team';
+    selectedAt: admin.firestore.Timestamp;
+}
+export interface FirestoreWeeklyLineup {
+    userId: string;
+    leagueId: string;
+    season: number;
+    week: number;
+    picks: Partial<Record<LineupPosition, LineupPick>>;
+    isComplete: boolean;
+    lastUpdated: admin.firestore.Timestamp;
+    totalPoints: number | null; // Calculated later
+}
+
+// Usage Count Structure
+export interface FirestoreLeagueUsageCount {
+    entityId: string; // e.g., 'player_12345' or 'team_11'
+    type: 'player' | 'team';
+    count: number;
+}
