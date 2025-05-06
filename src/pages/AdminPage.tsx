@@ -2,97 +2,48 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { httpsCallable, FunctionsError } from 'firebase/functions';
-import { functions } from '../firebase/firebase';
+import { functions } from '../firebase/firebase'; // Ensure this path is correct
 import Button from '../components/ui/button/Button';
 import PageMeta from '../components/common/PageMeta';
 import PageBreadcrumb from '../components/common/PageBreadCrumb';
 import Input from '../components/form/input/InputField';
 import Label from '../components/form/Label';
+import Alert from "../components/ui/alert/Alert";
+import ComponentCard from "../components/common/ComponentCard";
 
-// Keep the type guard (or move to shared utils)
+// Type Guard for Firebase Functions errors
 function isFunctionsError(error: unknown): error is FunctionsError {
   return typeof error === 'object' && error !== null && 'code' in error && typeof (error as { code?: unknown }).code === 'string';
 }
 
-// Define expected input/output types for the callable function
-interface FetchStatsInput { week: number; season?: number; } // Allow optional season override later
-interface FetchStatsResult { success: boolean; message: string; }
+// Input/output types for callable functions
+interface WeekInput { week: number; season?: number; } // For stats and schedule
+interface GenericResult { success: boolean; message: string; }
+interface AdminRoleInput { uid: string; }
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+interface EmptyInput { /* For functions with no input payload */ }
+
 
 export default function AdminPage() {
   const { user, isAdmin, loading: authLoading } = useAuth();
-  // Loading states for different actions
+
+  // --- Loading States ---
   const [updateTeamsLoading, setUpdateTeamsLoading] = useState(false);
   const [adminRoleLoading, setAdminRoleLoading] = useState(false);
-  const [fetchStatsLoading, setFetchStatsLoading] = useState(false); // New loading state
-  // Input states
-  const [targetUid, setTargetUid] = useState('');
-  const [statsWeek, setStatsWeek] = useState(''); // State for stats week input
-  // Feedback states
+  const [processStatsLoading, setProcessStatsLoading] = useState(false);
+  const [fetchScheduleLoading, setFetchScheduleLoading] = useState(false); // New state for schedule
+
+  // --- Input States ---
+  const [targetUid, setTargetUid] = useState(''); // For assigning admin role
+  const [processWeek, setProcessWeek] = useState(''); // For stats processing trigger
+  const [scheduleWeek, setScheduleWeek] = useState(''); // New state for schedule trigger
+
+  // --- Feedback States ---
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // --- Existing Functions (triggerUpdateTeamsPlayers, handleMakeAdmin) ---
-  const triggerUpdateTeamsPlayers = async () => {
-    setUpdateTeamsLoading(true); setMessage(null); setError(null);
-    try {
-      const updateFunction = httpsCallable<void, { success: boolean; message: string }>(functions, 'manualUpdateTeamsAndPlayers');
-      const result = await updateFunction();
-      setMessage(result.data.message || "Team/Player update completed.");
-    } catch (err: unknown) {
-      const errorMessage = handleFirebaseError(err, 'data update');
-      setError(errorMessage);
-    } finally { setUpdateTeamsLoading(false); }
-  };
 
-  const handleMakeAdmin = async () => {
-    if (!targetUid.trim()) { setError("Please enter a User ID."); return; }
-    setAdminRoleLoading(true); setMessage(null); setError(null);
-    try {
-      const addAdminFunction = httpsCallable<{ uid: string }, { message: string }>(functions, 'addAdminRole');
-      const result = await addAdminFunction({ uid: targetUid.trim() });
-      setMessage(result.data.message || `Successfully added admin role.`);
-      setTargetUid('');
-    } catch (err: unknown) {
-      const errorMessage = handleFirebaseError(err, 'adding admin role');
-      setError(errorMessage);
-    } finally { setAdminRoleLoading(false); }
-  };
-
-  // --- NEW Function to trigger fetching game stats for a week ---
-  const triggerFetchGameStats = async () => {
-    setMessage(null); setError(null); // Clear previous messages
-    const weekNum = parseInt(statsWeek, 10);
-
-    if (isNaN(weekNum) || weekNum < 1 || weekNum > 18) { // Basic validation
-      setError("Please enter a valid week number (1-18).");
-      return;
-    }
-
-    setFetchStatsLoading(true);
-    try {
-      // Get a reference to the callable function
-      const fetchStatsFunction = httpsCallable<FetchStatsInput, FetchStatsResult>(functions, 'manualFetchAndProcessGameStatsForWeek');
-
-      console.log(`Calling manualFetchAndProcessGameStatsForWeek for week ${weekNum}...`);
-      // Call the function with the week number
-      const result = await fetchStatsFunction({ week: weekNum });
-      console.log("Function result:", result.data);
-      setMessage(result.data.message || "Game stats fetch process completed.");
-      // Set success/error based on result?
-      if (!result.data.success && result.data.message) {
-        setError(result.data.message); // Show partial failures as error
-      }
-
-    } catch (err: unknown) {
-      console.error("Error calling manualFetchAndProcessGameStatsForWeek:", err);
-      const errorMessage = handleFirebaseError(err, 'fetching game stats');
-      setError(errorMessage);
-    } finally {
-      setFetchStatsLoading(false);
-    }
-  };
-
-  // --- Helper to format error messages ---
+  // --- Error Handling Helper ---
   const handleFirebaseError = (err: unknown, action: string): string => {
       console.error(`Error during ${action}:`, err);
       if (isFunctionsError(err)) {
@@ -110,72 +61,202 @@ export default function AdminPage() {
       return `An unexpected error occurred during ${action}.`;
   };
 
+
+  // --- Callable Function Handlers ---
+
+  // Handler for updating Teams & Players
+  const triggerUpdateTeamsPlayers = async () => {
+    setMessage(null); setError(null); setUpdateTeamsLoading(true);
+    try {
+      const updateFunction = httpsCallable<EmptyInput, GenericResult>(functions, 'manualUpdateTeamsAndPlayers');
+      console.log("Calling manualUpdateTeamsAndPlayers...");
+      const result = await updateFunction();
+      console.log("Function result:", result.data);
+      setMessage(result.data.message || "Team/Player update completed.");
+    } catch (err: unknown) {
+      const errorMessage = handleFirebaseError(err, 'data update');
+      setError(errorMessage);
+    } finally { setUpdateTeamsLoading(false); }
+  };
+
+  // Handler for assigning Admin Role
+  const handleMakeAdmin = async () => {
+    if (!targetUid.trim()) { setError("Please enter a User ID."); return; }
+    setMessage(null); setError(null); setAdminRoleLoading(true);
+    try {
+      const addAdminFunction = httpsCallable<AdminRoleInput, GenericResult>(functions, 'addAdminRole');
+      console.log(`Calling addAdminRole for UID: ${targetUid}...`);
+      const result = await addAdminFunction({ uid: targetUid.trim() });
+      console.log("Function result:", result.data);
+      setMessage(result.data.message || `Successfully added admin role.`);
+      setTargetUid(''); // Clear input on success
+    } catch (err: unknown) {
+      const errorMessage = handleFirebaseError(err, 'adding admin role');
+      setError(errorMessage);
+    } finally { setAdminRoleLoading(false); }
+  };
+
+  // Handler for fetching & calculating game stats
+  const triggerProcessGameStats = async () => {
+    setMessage(null); setError(null);
+    const weekNum = parseInt(processWeek, 10);
+    if (isNaN(weekNum) || weekNum < 1 || weekNum > 18) {
+        setError("Please enter valid week (1-18) for stats processing."); return;
+    }
+    setProcessStatsLoading(true);
+    try {
+        const processStatsFunction = httpsCallable<WeekInput, GenericResult>(functions, 'manualFetchAndProcessGameStatsForWeek');
+        console.log(`Calling manualFetchAndProcessGameStatsForWeek week ${weekNum}...`);
+        const result = await processStatsFunction({ week: weekNum });
+        setMessage(result.data.message || "Stats processing complete.");
+        if (!result.data.success) setError(result.data.message);
+    } catch (err: unknown) {
+        const errorMessage = handleFirebaseError(err, 'processing game stats');
+        setError(errorMessage);
+    } finally {
+        setProcessStatsLoading(false);
+    }
+  };
+
+  // *** NEW Handler for fetching weekly schedule ***
+  const triggerFetchSchedule = async () => {
+    setMessage(null); setError(null);
+    const weekNum = parseInt(scheduleWeek, 10); // Use scheduleWeek state
+
+    if (isNaN(weekNum) || weekNum < 1 || weekNum > 18) { // Basic validation
+      setError("Please enter a valid week number (1-18) to fetch the schedule.");
+      return;
+    }
+
+    setFetchScheduleLoading(true); // Use new loading state
+    try {
+      const fetchScheduleFunction = httpsCallable<WeekInput, GenericResult>(functions, 'manualFetchWeeklySchedule');
+      console.log(`Calling manualFetchWeeklySchedule for week ${weekNum}...`);
+      const result = await fetchScheduleFunction({ week: weekNum }); // Pass week object
+      console.log("Function result:", result.data);
+      setMessage(result.data.message || "Schedule fetch process completed.");
+      if (!result.data.success && result.data.message) {
+        setError(result.data.message);
+      }
+    } catch (err: unknown) {
+      console.error("Error calling manualFetchWeeklySchedule:", err);
+      const errorMessage = handleFirebaseError(err, 'fetching schedule');
+      setError(errorMessage);
+    } finally {
+      setFetchScheduleLoading(false); // Use new loading state
+    }
+  };
+
+
   // --- Render Logic ---
+
+  // Loading/Auth Checks
   if (authLoading) { return <p className='p-4 text-center'>Loading authentication...</p>; }
-  if (!user) { return <p className='p-4 text-center text-red-600'>Please log in.</p>; }
+  if (!user) { return <p className='p-4 text-center text-red-600'>Please log in to access the Admin Panel.</p>; }
   if (!isAdmin) {
-    return ( <div className="p-4 text-center"><h1 className='text-xl font-bold text-red-600'>Access Denied</h1><p className='text-gray-600'>You do not have permission.</p></div> );
+    return (
+      <div className="p-4 text-center">
+        <h1 className='text-xl font-bold text-red-600'>Access Denied</h1>
+        <p className='text-gray-600 dark:text-gray-400'>You do not have permission to view this page.</p>
+      </div>
+    );
   }
 
+  // Admin Page Content
   return (
     <>
-      <PageMeta title="Admin Panel | Easy Fantasy" description='Admin Panel' />
+      <div>
+      <PageMeta title="Admin Panel | Easy Fantasy" description='Admin control panel for Easy Fantasy application.' />
       <PageBreadcrumb pageTitle="Admin Panel" />
+      <div className="space-y-5 sm:space-y-6 mb-4">
+        {/* General Feedback Area */}
+        {message && (
+          <Alert
+            variant="success"
+            title="Success Message"
+            message={message}
+            showLink={false}
+          />
+        )}
+        {error && (
+          <Alert
+            variant="error"
+            title="Error Message"
+            message={error}
+            showLink={false}
+          />
+        )}
+        
+      </div>
 
-      <div className="container mx-auto p-4 space-y-6">
-        <h1 className="text-2xl font-bold">Admin Controls</h1>
-
-        {/* Feedback Area */}
-        {message && <div className="p-3 rounded bg-green-100 text-green-800 border border-green-200 text-sm">{message}</div>}
-        {error && <div className="p-3 rounded bg-red-100 text-red-800 border border-red-200 text-sm">{error}</div>}
-
-        {/* --- SECTION: Fetch Game Stats --- */}
-        <div className='p-4 border rounded bg-white dark:bg-gray-800 shadow'>
-            <h2 className='text-lg font-semibold mb-3'>Fetch Weekly Game Stats</h2>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div className="space-y-5 sm:space-y-6">
+          <ComponentCard title='Fetch Weekly Schedule'>
             <p className='text-sm text-gray-600 dark:text-gray-400 mb-4'>
-                Manually fetch raw box score stats for all games in a specific NFL week.
-                This saves the raw data to Firestore subcollections (doesn't calculate fantasy points yet).
-                Uses schedule data stored in Firestore to find game IDs.
+                Manually fetch the NFL game schedule for a specific week from the API and store it in Firestore (collection: `nfl_schedules`).
+                The scheduled function fetches the *next* week's schedule automatically every Tuesday.
             </p>
             <div className="flex items-end space-x-3">
                  <div className="flex-grow">
-                   <Label htmlFor="statsWeekInput">NFL Week (1-18):</Label>
+                   <Label htmlFor="scheduleWeekInput">NFL Week (1-18):</Label>
                    <Input
-                        id="statsWeekInput"
+                        id="scheduleWeekInput"
                         type="number"
-                        value={statsWeek}
-                        onChange={(e) => setStatsWeek(e.target.value)}
+                        value={scheduleWeek}
+                        onChange={(e) => setScheduleWeek(e.target.value)}
                         placeholder="Enter week number"
                         min="1"
-                        max="18" // Max NFL regular season weeks
-                        disabled={fetchStatsLoading}
+                        max="18"
+                        disabled={fetchScheduleLoading}
+                        className="w-full" // Ensure input takes available width
                     />
                 </div>
                 <Button
-                    onClick={triggerFetchGameStats}
-                    disabled={fetchStatsLoading || !statsWeek.trim()}
-                    className="shrink-0" // Prevent button from shrinking too much
+                    onClick={triggerFetchSchedule}
+                    disabled={fetchScheduleLoading || !scheduleWeek.trim()}
+                    className="shrink-0" // Prevent button shrinking
                 >
-                    {fetchStatsLoading ? "Fetching Stats..." : "Fetch Stats for Week"}
+                    {fetchScheduleLoading ? "Fetching Schedule..." : "Fetch Schedule for Week"}
                 </Button>
             </div>
-        </div>
-
-        {/* --- SECTION: Sync Teams/Players --- */}
-        <div className='p-4 border rounded bg-white dark:bg-gray-800 shadow'>
-            <h2 className='text-lg font-semibold mb-3'>Sync Teams & Players</h2>
+          </ComponentCard>
+          <ComponentCard title='Fetch & Process Game Stats'>
             <p className='text-sm text-gray-600 dark:text-gray-400 mb-4'>
-                Manually trigger the update process for NFL teams and player rosters/season stats/injury data from the external API.
+                Manually fetch raw box scores, store API-calculated player points, calculate custom team unit points, and save results for all games in a specific week.
             </p>
-            <Button onClick={triggerUpdateTeamsPlayers} disabled={updateTeamsLoading}>
-                {updateTeamsLoading ? "Updating Data..." : "Update Teams & Players Now"}
-            </Button>
+            <div className="flex items-end space-x-3">
+                 <div className="flex-grow">
+                   <Label htmlFor="processWeekInput">NFL Week (1-18):</Label>
+                   <Input
+                        id="processWeekInput" type="number"
+                        value={processWeek}
+                        onChange={(e) => setProcessWeek(e.target.value)}
+                        placeholder="Enter week number" min="1" max="18"
+                        disabled={processStatsLoading}
+                        className="w-full"
+                    />
+                 </div>
+                 <Button
+                    onClick={triggerProcessGameStats}
+                    disabled={processStatsLoading || !processWeek.trim()}
+                    className="shrink-0"
+                >
+                    {processStatsLoading ? "Processing Stats..." : "Fetch & Calc Stats"}
+                </Button>
+            </div>
+          </ComponentCard>
         </div>
-
-        {/* --- SECTION: Assign Admin Role --- */}
-        <div className='p-4 border rounded bg-white dark:bg-gray-800 shadow'>
-            <h2 className='text-lg font-semibold mb-3'>Assign Admin Role</h2>
-            <div className="space-y-2">
+        <div className="space-y-6">
+          <ComponentCard title='Sync Teams & Players'>
+              <p className='text-sm text-gray-600 dark:text-gray-400 mb-4'>
+                  Manually trigger the update process for NFL teams (info, schedule, season stats) and player rosters (info, season stats, injury data) from the external API. Marks inactive players.
+              </p>
+              <Button onClick={triggerUpdateTeamsPlayers} disabled={updateTeamsLoading}>
+                  {updateTeamsLoading ? "Updating Data..." : "Update Teams & Players Now"}
+              </Button>
+          </ComponentCard>
+          <ComponentCard title='Assign Admin Role'>
+          <div className="space-y-2">
                <Label htmlFor="targetUidInput">User ID to make Admin:</Label>
                <Input
                     id="targetUidInput"
@@ -184,13 +265,15 @@ export default function AdminPage() {
                     onChange={(e) => setTargetUid(e.target.value)}
                     placeholder="Enter User UID"
                     disabled={adminRoleLoading}
+                    className="w-full"
                 />
             </div>
-            <Button onClick={handleMakeAdmin} disabled={adminRoleLoading || !targetUid.trim()} className="mt-3">
-                {adminRoleLoading ? "Assigning..." : "Make Admin"}
-            </Button>
-         </div>
-
+             <Button onClick={handleMakeAdmin} disabled={adminRoleLoading || !targetUid.trim()} className="mt-3">
+                 {adminRoleLoading ? "Assigning..." : "Make Admin"}
+             </Button>
+          </ComponentCard>
+        </div>
+      </div>
       </div>
     </>
   );

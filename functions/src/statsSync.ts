@@ -8,8 +8,8 @@ import { Timestamp } from "firebase-admin/firestore";
 import { statsSyncOptions, secrets, hosts, config } from './config';
 import { safeParseFloat, safeParseInt } from './common';
 import {
-    BoxScoreResponse, BoxScoreBody, GamesForWeekResponse,
-    FirestorePlayerGameStat, FirestoreTeamGameStat,
+    BoxScoreResponse, BoxScoreBody, GameInfoForWeek,
+    FirestoreWeeklySchedule, FirestorePlayerGameStat, FirestoreTeamGameStat,
     PlayerPosition, TeamGameStatsForCalc // Only need team calc type
 } from './types';
 // Import TEAM Calculators & Aggregators
@@ -142,12 +142,21 @@ async function fetchAndProcessSingleGameStats(gameId: string, week: number, seas
             const aggRushing = aggregateRushingStats(apiBody.playerStats, teamId);
             const aggKicking = aggregateKickingStats(apiBody.playerStats, teamId);
             const aggReturns = aggregateSpecialTeamsReturnStats(apiBody.playerStats, teamId);
+
+            // parse raw DST fields
+            const rawDefTDs      = safeParseInt(defStatsRaw.defTD);
+            const totalReturnTDs = aggReturns.totalKickReturnTDs
+                                + aggReturns.totalPuntReturnTDs
+                                + aggReturns.totalFumbleReturnTDs;
+
             const gameStatsForCalc: TeamGameStatsForCalc = {
                  passingStats: aggPassing, rushingStats: aggRushing,
                  teamDefData: { // Parse raw DST stats
                     ptsAllowed: safeParseInt(defStatsRaw.ptsAllowed), sacks: safeParseFloat(defStatsRaw.sacks),
                     defInt: safeParseInt(defStatsRaw.defensiveInterceptions), fumRec: safeParseInt(defStatsRaw.fumblesRecovered), // Use fumRec from DST for fumble recovery points
-                    safeties: safeParseInt(defStatsRaw.safeties), defTD: safeParseInt(defStatsRaw.defTD),
+                    safeties: safeParseInt(defStatsRaw.safeties), 
+                    // subtract return TDs from total DST.defTD
+                    defTD: Math.max(0, rawDefTDs - totalReturnTDs)
                  },
                  specialTeamsStats: { // Use aggregated stats
                     xpMade: aggKicking.totalExtraPointsMade, fgMade: aggKicking.totalFieldGoalsMade,
@@ -211,21 +220,42 @@ export const manualFetchAndProcessGameStatsForWeek = onCall(
         logger.info(`Admin ${request.auth?.uid} triggering FULL stats fetch & calc week ${week}, season ${season}...`);
         playerPositionCache.clear(); // Clear position cache for each manual run
 
+        let gameIDs: string[] = [];
+
         try {
-            // Fetch Game IDs from API
-            const gamesResponse = await axios.request<GamesForWeekResponse>({
-                 method: 'GET', url: `https://${hosts.TANK01_NFL_API}/getNFLGamesForWeek`,
-                 params: { week: week.toString(), season: season.toString(), seasonType: 'reg' },
-                 headers: getTank01Headers(),
-            });
-            const gamesForWeek = gamesResponse.data?.body;
-            if (!Array.isArray(gamesForWeek)) throw new HttpsError('internal', `Failed list week ${week}.`);
-            const gameIDs: string[] = gamesForWeek.map(g => g?.gameID).filter((id): id is string => !!id);
-            if (gameIDs.length === 0) return { success: true, message: `No games found week ${week}.` };
+            // --- *** Fetch Game IDs from Firestore *** ---
+            const scheduleDocId = `${season}_week_${week}`;
+            const scheduleDocRef = db.collection('nfl_schedules').doc(scheduleDocId);
+            logger.info(`Fetching schedule document from Firestore: ${scheduleDocRef.path}`);
+            const scheduleDoc = await scheduleDocRef.get();
 
-            logger.info(`Found ${gameIDs.length} games week ${week}. Processing...`);
+            if (!scheduleDoc.exists) {
+                logger.error(`Schedule document not found in Firestore for ${scheduleDocId}. Run schedule fetch first?`);
+                throw new HttpsError('not-found', `Schedule data not found for week ${week}, season ${season}. Please fetch the schedule first.`);
+            }
 
-            // Process each game
+            const scheduleData = scheduleDoc.data() as FirestoreWeeklySchedule | undefined;
+            const gamesFromFirestore: GameInfoForWeek[] | undefined = scheduleData?.games;
+
+            if (!Array.isArray(gamesFromFirestore) || gamesFromFirestore.length === 0) {
+                 logger.warn(`No games found in Firestore schedule document ${scheduleDocId}.`);
+                 return { success: true, message: `No games listed in Firestore schedule for week ${week}, season ${season}.` };
+            }
+
+            // Extract valid game IDs
+            gameIDs = gamesFromFirestore
+                .map(g => g?.gameID)
+                .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+            if (gameIDs.length === 0) {
+                 logger.warn(`Extracted 0 valid game IDs from Firestore schedule ${scheduleDocId}.`);
+                 return { success: true, message: `No valid game IDs found in Firestore schedule for week ${week}, season ${season}.` };
+            }
+            // --- *** End of Firestore Fetch *** ---
+
+            logger.info(`Found ${gameIDs.length} games in Firestore schedule for week ${week}. Processing...`);
+
+            // Process each game found in the Firestore schedule
             let successCount = 0; let failureCount = 0;
             for (const gameId of gameIDs) {
                 // Use the integrated fetch & process helper
@@ -240,10 +270,11 @@ export const manualFetchAndProcessGameStatsForWeek = onCall(
             return { success: failureCount === 0, message: summaryMessage };
 
         } catch (error: unknown) {
-             if (error instanceof HttpsError) throw error;
+             // Catch errors from Firestore fetch or the processing loop
+             if (error instanceof HttpsError) throw error; // Re-throw specific errors
              const errorMessage = error instanceof Error ? error.message : String(error);
              logger.error(`Error manualFetchAndProcess week ${week}:`, { error: errorMessage, detail: error });
-             throw new HttpsError('internal', `Failed processing week ${week}.`);
+             throw new HttpsError('internal', `Failed processing week ${week}. Check logs.`);
         }
     }
 );
