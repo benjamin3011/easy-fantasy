@@ -9,8 +9,8 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
-import { InfoIcon } from "../../icons";
 import PaginationWithButton from "../common/PaginationWithButton";
+import { InfoIcon } from "../../icons";
 import { calculateCurrentNFLWeek } from "../../utils/nflWeekHelper";
 import type { Member } from "../../utils/leagues";
 
@@ -19,218 +19,219 @@ interface Props {
 }
 
 export default function LeagueStandingsTable({ members }: Props) {
-  const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(5);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
+
   const currentWeek = calculateCurrentNFLWeek();
 
-  const rows = useMemo(
-    () =>
-      members.map((m) => ({
-        uid: m.uid,
-        teamName: m.teamName,
-        weekly: m.fantasyPoints?.[currentWeek] ?? 0,
-        total: m.fantasyPointsTotal,
-      })),
-    [members, currentWeek]
-  );
-
   const filtered = useMemo(() => {
-    return rows
-      .filter((r) =>
-        r.teamName.toLowerCase().includes(search.toLowerCase())
+    return members
+      .filter((m) =>
+        m.teamName.toLowerCase().includes(search.toLowerCase())
       );
-  }, [rows, search]);
+  }, [members, search]);
 
   const total = filtered.length;
   const pages = Math.ceil(total / perPage);
   const start = (page - 1) * perPage;
   const end = start + perPage;
 
+  // Sort members by total points descending
+  const sortedMembers = useMemo(() => {
+    return filtered
+      .slice()
+      .sort((a, b) => (b.totalSeasonPoints || 0) - (a.totalSeasonPoints || 0))
+      .slice(start, end);
+  }, [filtered, start, end]);
+
   return (
-    <div className="overflow-hidden rounded-xl bg-white dark:bg-white/[0.03]">
-      {/* controls */}
-      <div className="flex flex-col gap-2 px-4 py-4 border border-b-0 border-gray-100 dark:border-white/[0.05] rounded-t-xl sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-            <span className="text-gray-500 dark:text-gray-400"> Show </span>
-            <div className="relative z-20 bg-transparent">
-                <select
-                    className="w-full py-2 pl-3 pr-8 text-sm text-gray-800 bg-transparent border border-gray-300 rounded-lg appearance-none dark:bg-dark-900 h-9 bg-none shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800"
-                    value={perPage}
-                    onChange={(e) => {
-                    setPerPage(+e.target.value);
-                    setPage(1);
-                    }}
-                >
-                    {[5, 10, 20].map((n) => (
-                    <option key={n} value={n} className="text-gray-500 dark:bg-gray-900 dark:text-gray-400">
-                        {n}
-                    </option>
-                    ))}
-                </select>
-                <span className="absolute z-30 text-gray-500 -translate-y-1/2 right-2 top-1/2 dark:text-gray-400">
-                <svg
-                    className="stroke-current"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                >
-                    <path
-                    d="M3.8335 5.9165L8.00016 10.0832L12.1668 5.9165"
-                    stroke=""
-                    strokeWidth="1.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    />
-                </svg>
-                </span>
-            </div>
-            <span className="text-gray-500 dark:text-gray-400"> entries </span>
+    <div className="overflow-hidden rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+      {/* Mobile-First Controls */}
+      <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 space-y-4 sm:space-y-0 sm:flex sm:items-center sm:justify-between">
+        {/* Entries Selector */}
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-gray-600 dark:text-gray-400">Show</span>
+          <select
+            className="px-3 py-1 text-sm border border-gray-300 rounded-lg bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            value={perPage}
+            onChange={(e) => {
+              setPerPage(+e.target.value);
+              setPage(1);
+            }}
+          >
+            {[5, 10, 20].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <span className="text-gray-600 dark:text-gray-400">entries</span>
         </div>
+
+        {/* Search Input */}
         <div className="relative">
-          <span className="absolute text-gray-500 -translate-y-1/2 pointer-events-none left-4 top-1/2 dark:text-gray-400">
-            <svg
-              className="fill-current"
-              width="20"
-              height="20"
-              viewBox="0 0 20 20"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M3.04199 9.37363C3.04199 5.87693 5.87735 3.04199 9.37533 3.04199C12.8733 3.04199 15.7087 5.87693 15.7087 9.37363C15.7087 12.8703 12.8733 15.7053 9.37533 15.7053C5.87735 15.7053 3.04199 12.8703 3.04199 9.37363ZM9.37533 1.54199C5.04926 1.54199 1.54199 5.04817 1.54199 9.37363C1.54199 13.6991 5.04926 17.2053 9.37533 17.2053C11.2676 17.2053 13.0032 16.5344 14.3572 15.4176L17.1773 18.238C17.4702 18.5309 17.945 18.5309 18.2379 18.238C18.5308 17.9451 18.5309 17.4703 18.238 17.1773L15.4182 14.3573C16.5367 13.0033 17.2087 11.2669 17.2087 9.37363C17.2087 5.04817 13.7014 1.54199 9.37533 1.54199Z"
-                fill=""
-              />
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <svg className="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-          </span>
+          </div>
           <input
             type="text"
-            placeholder="Search team…"
-            className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-300 bg-transparent py-2.5 pl-11 pr-4 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[300px]"
+            placeholder="Search team..."
+            className="pl-10 pr-4 py-2 w-full sm:w-64 text-sm border border-gray-300 rounded-lg bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400 focus:ring-2 focus:ring-brand-500 focus:border-transparent"
             value={search}
             onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
+              setSearch(e.target.value);
+              setPage(1);
             }}
-            />
+          />
         </div>
-        
       </div>
 
-      {/* table */}
-      <div className="max-w-full overflow-x-auto custom-scrollbar">
-        <div>
-        <Table>
-          <TableHeader className="border-t border-gray-100 dark:border-white/[0.05]">
-            <TableRow>
-            <TableCell
-                isHeader
-                className="min-w-[40px] px-4 py-3 border border-gray-100 dark:border-white/[0.05]" 
-              >
-                <div className="flex items-center justify-between cursor-pointer">
-                      <p className="font-medium text-gray-700 text-theme-xs dark:text-gray-400">
-                      #
-                      </p>
+      {/* Mobile Cards (visible on mobile only) */}
+      <div className="block sm:hidden">
+        {sortedMembers.length === 0 ? (
+          <div className="px-4 py-12 text-center">
+            <div className="text-gray-500 dark:text-gray-400">
+              <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 919.288 0M15 7a3 3 0 11-6 0 3 3 0 616 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+              <p className="text-sm">No teams found</p>
+            </div>
+          </div>
+        ) : (
+          sortedMembers.map((member, index) => {
+            const position = start + index + 1;
+            const thisWeek = member.weeklyPoints?.[currentWeek] ?? 0;
+            
+            return (
+              <div key={member.uid} className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    {/* Position Badge */}
+                    <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
+                      position === 1 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                      position === 2 ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200' :
+                      position === 3 ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' :
+                      'bg-blue-50 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
+                    }`}>
+                      {position}
                     </div>
-              </TableCell>
-              <TableCell
-                isHeader
-                className="min-w-[250px] px-4 py-3 border border-gray-100 dark:border-white/[0.05]" 
-              >
-                <div className="flex items-center justify-between cursor-pointer">
-                      <p className="font-medium text-gray-700 text-theme-xs dark:text-gray-400">
-                      Team
-                      </p>
-                      
+                    
+                    {/* Team Info */}
+                    <div>
+                      <h4 className="font-semibold text-gray-900 dark:text-white">
+                        {member.teamName}
+                      </h4>
+                      <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
+                        <span>Week {currentWeek}: {thisWeek} pts</span>
+                        <span>Total: {member.totalSeasonPoints ?? 0} pts</span>
+                      </div>
                     </div>
-              </TableCell>
-              <TableCell
-                isHeader
-                className="min-w-[120px] px-4 py-3 border border-gray-100 dark:border-white/[0.05]" 
-              >
-                <div className="flex items-center justify-between cursor-pointer">
-                      <p className="font-medium text-gray-700 text-theme-xs dark:text-gray-400">
-                      Week {currentWeek}
-                      </p>
-                    </div>
-              </TableCell>
-              <TableCell
-                isHeader
-                className="min-w-[120px] px-4 py-3 border border-gray-100 dark:border-white/[0.05]" 
-              >
-                <div className="flex items-center justify-between cursor-pointer">
-                      <p className="font-medium text-gray-700 text-theme-xs dark:text-gray-400">
-                      Total
-                      </p>
-                    </div>
-              </TableCell>
-              <TableCell
-                isHeader
-                className="min-w-[120px] px-4 py-3 border border-gray-100 dark:border-white/[0.05]" 
-              >
-                <div className="flex items-center justify-between cursor-pointer">
-                      <p className="font-medium text-gray-700 text-theme-xs dark:text-gray-400">
-                      Actions
-                      </p>
-                    </div>
-              </TableCell>
-            </TableRow>
-          </TableHeader>
-          <TableBody className="divide-y divide-gray-100 dark:divide-white/[0.05]">
-              {members
-                // sort by total descending
-                .slice()
-                .sort((a, b) =>
-                  (b.fantasyPointsTotal || 0) - (a.fantasyPointsTotal || 0)
-                )
-                .map((m, idx) => {
-                  const thisWeek = m.fantasyPoints?.[currentWeek] ?? 0;
+                  </div>
+                  
+                  {/* Action Button */}
+                  <button className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                    <InfoIcon className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Desktop Table (hidden on mobile) */}
+      <div className="hidden sm:block">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableCell isHeader className="px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  #
+                </TableCell>
+                <TableCell isHeader className="px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Team
+                </TableCell>
+                <TableCell isHeader className="px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Week {currentWeek}
+                </TableCell>
+                <TableCell isHeader className="px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Total
+                </TableCell>
+                <TableCell isHeader className="px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Actions
+                </TableCell>
+              </TableRow>
+            </TableHeader>
+            
+            <TableBody className="divide-y divide-gray-200 dark:divide-gray-700">
+              {sortedMembers.length === 0 ? (
+                <TableRow>
+                  <td colSpan={5} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
+                    No teams found
+                  </td>
+                </TableRow>
+              ) : (
+                sortedMembers.map((member, index) => {
+                  const position = start + index + 1;
+                  const thisWeek = member.weeklyPoints?.[currentWeek] ?? 0;
+                  
                   return (
-                    <TableRow key={m.uid}>
-                      <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-100 dark:border-white/[0.05] dark:text-white text-theme-sm whitespace-nowrap ">{idx + 1}</TableCell>
+                    <TableRow key={member.uid} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                      <TableCell className="px-4 py-4 text-sm font-medium text-gray-900 dark:text-white">
+                        <div className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                          position === 1 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                          position === 2 ? 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200' :
+                          position === 3 ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' :
+                          'bg-blue-50 text-blue-700 dark:bg-blue-900 dark:text-blue-200'
+                        }`}>
+                          {position}
+                        </div>
+                      </TableCell>
                       
-                      <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-100 dark:border-white/[0.05] dark:text-white text-theme-sm whitespace-nowrap ">{m.teamName}</TableCell>
-                      <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-100 dark:border-white/[0.05] dark:text-white text-theme-sm whitespace-nowrap ">
+                      <TableCell className="px-4 py-4 text-sm font-medium text-gray-900 dark:text-white">
+                        {member.teamName}
+                      </TableCell>
+                      
+                      <TableCell className="px-4 py-4 text-sm text-gray-600 dark:text-gray-400">
                         {thisWeek}
                       </TableCell>
-                      <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-100 dark:border-white/[0.05] dark:text-white text-theme-sm whitespace-nowrap ">
-                        {m.fantasyPointsTotal ?? 0}
+                      
+                      <TableCell className="px-4 py-4 text-sm font-medium text-gray-900 dark:text-white">
+                        {member.totalSeasonPoints ?? 0}
                       </TableCell>
-                      <TableCell className="px-4 py-4 font-medium text-gray-800 border border-gray-100 dark:border-white/[0.05] dark:text-white text-theme-sm whitespace-nowrap ">
-                        <button>
-                            <InfoIcon className="text-gray-700 cursor-pointer size-5 hover:text-error-500 dark:text-gray-400 dark:hover:text-error-500" />
+                      
+                      <TableCell className="px-4 py-4 text-sm">
+                        <button className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                          <InfoIcon className="w-5 h-5" />
                         </button>
                       </TableCell>
                     </TableRow>
                   );
-                })}
+                })
+              )}
             </TableBody>
-          
-        </Table>
+          </Table>
         </div>
       </div>
 
-      {/* pagination */}
-      <div className="border border-t-0 rounded-b-xl border-gray-100 py-4 pl-[18px] pr-4 dark:border-white/[0.05]">
-        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between">
-          {/* Left side: Showing entries */}
-
-          <PaginationWithButton
-            totalPages={pages}
-            initialPage={page}
-            onPageChange={(p) => setPage(p)}
+      {/* Pagination */}
+      {pages > 1 && (
+        <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+            <PaginationWithButton
+              totalPages={pages}
+              initialPage={page}
+              onPageChange={(p) => setPage(p)}
             />
-          <div className="pt-3 xl:pt-0">
-            <p className="pt-3 text-sm font-medium text-center text-gray-500 border-t border-gray-100 dark:border-gray-800 dark:text-gray-400 xl:border-t-0 xl:pt-0 xl:text-left">
-            Showing {start + 1} to {Math.min(end, total)} of {total} entries
-            </p>
+            <div className="text-sm text-gray-500 dark:text-gray-400 text-center sm:text-left">
+              Showing {start + 1} to {Math.min(end, total)} of {total} entries
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

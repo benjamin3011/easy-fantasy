@@ -42,12 +42,69 @@ export interface BoxScoreBody {
     teamStats: { home: BoxScoreTeamGameStatsDetail; away: BoxScoreTeamGameStatsDetail; };
     DST: { home: BoxScoreTeamDefGameStatsDetail; away: BoxScoreTeamDefGameStatsDetail; };
     week?: string; season?: string; gameDate?: string; gameTimeEpoch?: string; gameStatus?: string;
+    gameStatusCode?: string; // Tank01 API game status code as string, will be parsed to number
+    // Game score fields are actually in the body, not at the top level
+    gameID?: string;
+    teamIDHome?: string;
+    teamIDAway?: string;
+    home?: string;
+    away?: string;
+    homePts?: string | number;
+    awayPts?: string | number;
+    period?: string; // "Final", "Q1", "Q2", etc.
+    gameClock?: string;
+    currentPeriod?: string; // "Final", "Q1", "Q2", etc. - this is the actual field name
+    lineScore?: {
+        period?: string;
+        gameClock?: string;
+        currentPeriod?: string;
+        away?: {
+            Q1?: string;
+            Q2?: string;
+            Q3?: string;
+            Q4?: string;
+            teamID?: string;
+            currentlyInPossession?: string;
+            totalPts?: string;
+            teamAbv?: string;
+        };
+        home?: {
+            Q1?: string;
+            Q2?: string;
+            Q3?: string;
+            Q4?: string;
+            teamID?: string;
+            currentlyInPossession?: string;
+            totalPts?: string;
+            teamAbv?: string;
+        };
+    };
+    gameLocation?: string;
+    arena?: string;
+    network?: string;
+    attendance?: string;
 }
-export interface BoxScoreResponse { statusCode?: number; body: BoxScoreBody; }
+export interface BoxScoreResponse { 
+    statusCode?: number; 
+    body: BoxScoreBody;
+    // Top-level fields that are not duplicated in body
+    gameDate?: string;
+    gameWeek?: string;
+    seasonType?: string;
+}
 // Game Info for fetching IDs
 export interface GameInfoForWeek {
     gameID: string;
-    seasonType?: string; week?: string; gameDate?: string; gameTimeEpoch?: string;
+    seasonType?: string; 
+    week?: string; 
+    gameDate?: string; 
+    gameTime_epoch?: string; // Renamed from gameTimeEpoch to match usage
+    teamIDHome: string;      
+    teamIDAway: string;      
+    home?: string; // Changed from homeTeamAbbreviation to match Firestore data
+    away?: string; // Changed from awayTeamAbbreviation to match Firestore data
+    // Consider adding other relevant fields from your Firestore snapshot if needed by backend logic
+    // e.g., gameStatus?: string; gameTime?: string;
 }
 export interface GamesForWeekResponse { body: GameInfoForWeek[]; }
 // Player/Team roster types
@@ -95,6 +152,9 @@ export interface FirestorePlayerGameStat {
     fantasyPoints?: number; // Use this for the API's calculated value based on your rules
     // Optional: Store the API's default calculations if needed for reference
     apiFantasyPointsDefault?: { standard: number; ppr: number; halfPpr: number; };
+    // *** Game Status from Tank01 API ***
+    gameStatus?: string; // e.g., "Live - In Progress", "Final", "Completed"
+    gameStatusCode?: number; // 0=not started, 1=live, 2=final, 3=postponed, 4=suspended
     lastUpdated: admin.firestore.Timestamp;
 }
 
@@ -112,6 +172,9 @@ export interface FirestoreTeamGameStat {
     fantasyPointsSpecialTeams?: number;
     // Optional: Store aggregated stats used for calc
     aggregatedStatsForCalc?: TeamGameStatsForCalc;
+    // *** Game Status from Tank01 API ***
+    gameStatus?: string; // e.g., "Live - In Progress", "Final", "Completed"  
+    gameStatusCode?: number; // 0=not started, 1=live, 2=final, 3=postponed, 4=suspended
     lastUpdated: admin.firestore.Timestamp;
 }
 
@@ -164,6 +227,7 @@ export interface LineupPick {
     id: string; // PlayerID or TeamID
     type: 'player' | 'team';
     selectedAt: admin.firestore.Timestamp;
+    gameIdForWeek?: string; // Added: The specific game ID for this pick for the given week
 }
 export interface FirestoreWeeklyLineup {
     userId: string;
@@ -173,7 +237,8 @@ export interface FirestoreWeeklyLineup {
     picks: Partial<Record<LineupPosition, LineupPick>>;
     isComplete: boolean;
     lastUpdated: admin.firestore.Timestamp;
-    totalPoints: number | null; // Calculated later
+    totalActualPoints?: number | null; // Renamed from totalPoints and made optional for clarity
+    captainPlayerId?: string | null; // ID of the player designated as Captain
 }
 
 // Usage Count Structure
@@ -181,4 +246,48 @@ export interface FirestoreLeagueUsageCount {
     entityId: string; // e.g., 'player_12345' or 'team_11'
     type: 'player' | 'team';
     count: number;
+}
+
+// --- League Structure with Member Points ---
+export interface FirestoreLeagueMember {
+    uid: string;
+    teamName: string;
+    // Optional: Add other member-specific league settings if any in the future
+    weeklyPoints?: { [week: string]: number }; // Key is week number (e.g., "1", "2")
+    totalSeasonPoints?: number;
+    lastUpdated?: admin.firestore.Timestamp;
+}
+
+export interface FirestoreLeague {
+    name: string;
+    adminUid: string;
+    code: string;
+    isPublic: boolean;
+    members: FirestoreLeagueMember[]; // Array of members with their points
+    memberUids: string[]; // Still useful for quick checks of who is in the league
+    createdAt: admin.firestore.Timestamp;
+    enableCaptainFeature?: boolean;
+    captainPointMultiplier?: number;
+    // Add any other league-wide settings
+}
+
+// Add notification preferences types
+export interface NotificationPreferences {
+    lineupDeadlineAlerts: boolean;
+    lineupDeadlineMinutes: number; // How many minutes before game start to alert
+    scoringAlerts: boolean;
+    injuryAlerts: boolean;
+    leagueActivityAlerts: boolean;
+    enabled: boolean; // Master toggle
+}
+
+export interface FirestoreUser {
+    uid: string;
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    fcmToken?: string; // Firebase Cloud Messaging token
+    notificationPreferences?: NotificationPreferences;
+    createdAt: admin.firestore.Timestamp;
+    lastLoginAt?: admin.firestore.Timestamp;
 }

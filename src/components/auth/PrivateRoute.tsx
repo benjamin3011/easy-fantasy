@@ -15,7 +15,6 @@ export default function PrivateRoute({
   }
 
   if (!user) {
-    // redirect to /signin, preserve where we came from
     return (
       <Navigate
         to="/signin"

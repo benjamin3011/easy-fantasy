@@ -34,4 +34,13 @@ export * from './leagues';
 // Admin Callables
 export * from './admin';
 
+// Notification Functions
+export * from './notifications';
+
+// Special Triggers
+export * from './triggers';
+
+// Game Tips/Prophet Points
+export * from './gameTips';
+
 console.log("Firebase Functions initialized and exported."); // Log on deploy/cold start

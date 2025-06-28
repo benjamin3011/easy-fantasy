@@ -1,7 +1,6 @@
 /* pages / LeaguesPage.tsx */
 import { useEffect, useState } from "react"; // Keep useState
 import PageMeta from "../components/common/PageMeta";
-import PageBreadcrumb from "../components/common/PageBreadCrumb";
 // Uses the listener function
 import { League, listenToUserLeagues } from "../utils/leagues";
 import { useAuth } from "../context/AuthContext";
@@ -69,7 +68,41 @@ export default function LeaguesPage() {
   return (
     <>
       <PageMeta title="Leagues | Easy Fantasy" description="NFL Fantasy Football" />
-      <PageBreadcrumb pageTitle="Leagues" />
+
+      {/* Mobile-First Container */}
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl">
+          {/* Mobile-First Header */}
+          <div className="pt-4 pb-6">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+              Leagues
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 text-sm">
+              Join or create fantasy football leagues
+            </p>
+          </div>
+
+          {/* Mobile-First Layout: Single column on mobile, responsive grid on larger screens */}
+          <div className="space-y-6 lg:grid lg:grid-cols-3 lg:gap-8 lg:space-y-0">
+            {/* My Leagues - Full width on mobile, 2/3 on desktop */}
+            <div className="lg:col-span-2">
+              <LeagueList
+                leagues={myLeagues}
+                isLoading={isLoadingMyLeagues}
+                error={errorMyLeagues}
+                onCreate={createModal.openModal}
+                onJoin={joinModal.openModal}
+              />
+            </div>
+
+            {/* Public Leagues - Full width on mobile, 1/3 on desktop */}
+            <div className="lg:col-span-1">
+              {/* *** ADD key prop *** */}
+              <PublicLeaguesList key={publicListRefreshKey} />
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* dialogs - use updated success handler */}
       <CreateLeagueDialog
@@ -82,23 +115,6 @@ export default function LeaguesPage() {
         onClose={joinModal.closeModal}
         onSuccess={handleDialogSuccess} // This now triggers public list refresh
       />
-
-      {/* grid wrapper */}
-      <div className="grid grid-cols-12 gap-4 md:gap-6">
-        <div className="col-span-12 xl:col-span-7">
-          <LeagueList
-            leagues={myLeagues}
-            isLoading={isLoadingMyLeagues}
-            error={errorMyLeagues}
-            onCreate={createModal.openModal}
-            onJoin={joinModal.openModal}
-          />
-        </div>
-        <div className="col-span-12 xl:col-span-5">
-          {/* *** ADD key prop *** */}
-          <PublicLeaguesList key={publicListRefreshKey} />
-        </div>
-      </div>
     </>
   );
 }

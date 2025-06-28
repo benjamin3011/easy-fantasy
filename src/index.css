@@ -290,6 +290,123 @@ layer(base);
     display: none;
     -webkit-appearance: none;
   }
+
+  /* iOS Safe Area Support */
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .safe-area-pt {
+    padding-top: env(safe-area-inset-top);
+  }
+  
+  .safe-area-pl {
+    padding-left: env(safe-area-inset-left);
+  }
+  
+  .safe-area-pr {
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* Minimal safe area for bottom tabs */
+  .pb-safe-area-minimal {
+    padding-bottom: max(env(safe-area-inset-bottom), 8px);
+  }
+
+  /* Better safe area handling for PWA standalone mode */
+  .pb-safe-or-4 {
+    padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+  }
+
+  /* PWA standalone mode specific adjustments */
+  @media (display-mode: standalone) {
+    .pb-safe-or-4 {
+      padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+    }
+  }
+
+  /* PWA Bottom Tab Bar - Simplified Approach */
+  .pwa-bottom-tabs {
+    height: auto;
+    min-height: 70px;
+  }
+
+  .pwa-tab-container {
+    height: 70px;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-top: 8px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  /* Content spacer - matches tab bar exactly */
+  .pwa-content-spacer {
+    height: calc(70px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Desktop/browser fallback - no safe area needed */
+  @media (min-width: 768px) {
+    .pwa-bottom-tabs,
+    .pwa-content-spacer {
+      display: none;
+    }
+  }
+
+  /* PWA standalone mode specific adjustments */
+  @media (display-mode: standalone) {
+    .pwa-tab-container {
+      /* In PWA mode, reduce bottom padding slightly */
+      padding-bottom: max(env(safe-area-inset-bottom, 0px), 4px);
+    }
+    
+    .pwa-content-spacer {
+      height: calc(70px + max(env(safe-area-inset-bottom, 0px), 4px));
+    }
+  }
+
+  /* PWA-specific styles */
+  .pwa-viewport-fix {
+    /* Prevents zoom on iOS Safari */
+    touch-action: manipulation;
+  }
+  
+  /* Native iOS-style backdrop blur */
+  .ios-backdrop-blur {
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  
+  /* Native haptic feedback simulation */
+  .haptic-light {
+    transition: transform 0.1s ease-out;
+  }
+  
+  .haptic-light:active {
+    transform: scale(0.96);
+  }
+
+  /* Hide scrollbars in mobile Safari */
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Debug utility for testing (remove in production) */
+  .debug-safe-area {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(255, 0, 0, 0.3);
+    height: env(safe-area-inset-bottom);
+    pointer-events: none;
+    z-index: 99999;
+    display: none; /* Enable this to see safe area */
+  }
 }
 
 .tableCheckbox:checked ~ span span {
@@ -781,4 +898,50 @@ span.flatpickr-weekday,
 
 .simplebar-scrollbar.simplebar-visible:before {
   @apply opacity-100;
+}
+
+/* iOS Safari zoom prevention for input fields */
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+  input[type="email"],
+  input[type="password"],
+  input[type="text"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="search"],
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+  
+  /* Responsive font size - smaller on larger screens */
+  @media (min-width: 640px) {
+    input[type="email"],
+    input[type="password"],
+    input[type="text"],
+    input[type="number"],
+    input[type="tel"],
+    input[type="url"],
+    input[type="search"],
+    textarea,
+    select {
+      font-size: 14px !important;
+    }
+  }
+}
+
+/* Additional iOS PWA specific styles */
+@supports (-webkit-touch-callout: none) {
+  /* iOS specific styles */
+  input {
+    -webkit-appearance: none;
+    border-radius: 0;
+  }
+  
+  /* Prevent zoom on focus for iOS */
+  input:focus,
+  textarea:focus,
+  select:focus {
+    font-size: 16px !important;
+  }
 }

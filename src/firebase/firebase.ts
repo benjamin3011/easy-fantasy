@@ -2,13 +2,9 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from "firebase/auth";
 import {
-    initializeFirestore, // Use this instead of getFirestore directly for config
-    persistentLocalCache,
-    persistentMultipleTabManager, // For multi-tab persistence
-    // persistentSingleTabManager, // Alternative for single-tab
-    // memoryLocalCache, // Explicitly use memory cache
-    Firestore, // Import Firestore type
-    doc, // Import doc and setDoc for use in initMessaging
+    getFirestore, // Use getFirestore instead of initializeFirestore for stability
+    enableMultiTabIndexedDbPersistence,
+    doc,
     setDoc
 } from 'firebase/firestore';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
@@ -26,67 +22,77 @@ const firebaseConfig = {
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 
-// --- Initialize Firestore with Persistence Configuration ---
-let db: Firestore; // Declare db with Firestore type
-try {
-     // Initialize Firestore using the new API, enabling persistent cache with multi-tab support
-     db = initializeFirestore(app, {
-        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-        // Optionally: Add settings like ignoreUndefinedProperties if needed, but be cautious [5]
-        // settings: { ignoreUndefinedProperties: true } // Use with care!
-    });
-    console.log("Firestore initialized with persistent multi-tab cache.");
-} catch (error: unknown) {
-    // Handle initialization errors
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("Failed to initialize Firestore with persistent cache, falling back to memory cache.", { error: errorMessage, detail: error });
-    db = initializeFirestore(app, {});
-}
+// --- Initialize Firestore with optimized configuration ---
+const db = getFirestore(app);
 
+// Enable offline persistence with stable multi-tab support
+// Wrap in async function to avoid blocking initialization
+const initializePersistence = async () => {
+  try {
+    await enableMultiTabIndexedDbPersistence(db);
+  } catch (err: unknown) {
+    const error = err as { code?: string };
+    if (error.code === 'failed-precondition') {
+      // Multiple tabs open, persistence can only be enabled in one tab at a time
+      console.warn('Multiple tabs open, persistence only enabled in one tab');
+    } else if (error.code === 'unimplemented') {
+      // The current browser doesn't support all features required to enable persistence
+      console.warn('Current browser doesn\'t support persistence');
+    } else {
+      console.warn('Failed to enable Firestore persistence:', err);
+    }
+  }
+};
+
+// Initialize persistence without blocking
+initializePersistence();
 
 // Export services
 export const auth = getAuth(app);
 export { db }; // Export the initialized db instance
-export const messaging = getMessaging(app);
-// Initialize Functions, match REGION from functions/index.ts
 export const functions = getFunctions(app, 'europe-west3');
+
+// Lazy initialize messaging to reduce initial bundle impact
+let messaging: ReturnType<typeof getMessaging> | null = null;
+export const getMessagingInstance = () => {
+  if (!messaging) {
+    messaging = getMessaging(app);
+  }
+  return messaging;
+};
 
 // --- Firebase Cloud Messaging Initialization & Token Management ---
 export async function initMessaging(uid: string | null) {
-  console.log("Attempting to initialize messaging...");
   try {
     if (!('Notification' in window)) {
-        console.warn('This browser does not support desktop notification'); return;
+        return;
     }
+    
     const permission = await Notification.requestPermission();
     if (permission === 'granted') {
-        console.log('Notification permission granted.');
-        const currentToken = await getToken(messaging, { vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY });
-        if (currentToken) {
-          console.log('FCM Token obtained:', currentToken);
-          if (uid && db) {
-            try {
-              // doc/setDoc are already imported at the top now
-              const userDocRef = doc(db, "users", uid);
-              await setDoc(userDocRef, { fcmToken: currentToken }, { merge: true });
-              console.log("FCM Token saved to Firestore for user:", uid);
-            } catch (saveError: unknown) {
-                const errorMessage = saveError instanceof Error ? saveError.message : String(saveError);
-                console.error("Failed to save FCM token to Firestore:", { error: errorMessage, detail: saveError });
-            }
-          } else {
-            if (!uid) console.log("User not logged in, FCM token not saved to DB.");
-            if (!db) console.warn("Firestore DB instance not available, FCM token not saved.");
+        const messagingInstance = getMessagingInstance();
+        const currentToken = await getToken(messagingInstance, { 
+          vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY 
+        });
+        
+        if (currentToken && uid && db) {
+          try {
+            const userDocRef = doc(db, "users", uid);
+            await setDoc(userDocRef, { fcmToken: currentToken }, { merge: true });
+          } catch (saveError: unknown) {
+              console.error('Failed to save FCM token to Firestore:', saveError);
           }
-        } else { console.log('No registration token available.'); }
-    } else { console.log('Unable to get permission to notify.'); }
+        }
+    }
   } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error('An error occurred while retrieving token/permission.', { error: errorMessage, detail: err });
+    console.error('Error initializing messaging:', err);
   }
 
-  onMessage(messaging, (payload) => {
-    console.log('Foreground message received. ', payload);
-    if (payload.notification) { /* Handle foreground message display */ }
+  // Set up message listener
+  const messagingInstance = getMessagingInstance();
+  onMessage(messagingInstance, (payload) => {
+    if (payload.notification) { 
+      // Handle foreground message display
+    }
   });
 }

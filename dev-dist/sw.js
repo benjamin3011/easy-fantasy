@@ -81,12 +81,13 @@ define(['./workbox-f001acab'], (function (workbox) { 'use strict';
     "url": "registerSW.js",
     "revision": "3ca0b8505b4bec776b69afdba2768812"
   }, {
-    "url": "index.html",
-    "revision": "0.3mqrdkhctgo"
+    "url": "/index.html",
+    "revision": "0.udi67j50js"
   }], {});
   workbox.cleanupOutdatedCaches();
-  workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
-    allowlist: [/^\/$/]
+  workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("/index.html"), {
+    allowlist: [/^\/$/],
+    denylist: [/^\/_/, /\/[^/?]+\.[^/]+$/]
   }));
   workbox.registerRoute(/\.(?:png|jpg|jpeg|svg|css|js)$/, new workbox.CacheFirst({
     "cacheName": "assets-cache",
@@ -101,3 +102,4 @@ define(['./workbox-f001acab'], (function (workbox) { 'use strict';
   }), 'GET');
 
 }));
+//# sourceMappingURL=sw.js.map

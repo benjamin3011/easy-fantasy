@@ -2,13 +2,73 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8">
+    
+    <!-- Standard favicon -->
     <link rel="icon" type="image/png" href="/icons/favicon-96x96.png" sizes="96x96" />
     <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
     <link rel="shortcut icon" href="/icons/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Viewport with iOS optimizations -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    
     <title>Easy Fantasy</title>
+    
+    <!-- PWA manifest -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    
+    <!-- iOS-specific meta tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Easy Fantasy">
     <link rel="apple-touch-icon" href="/icons/apple-icon-180.png">
+    <link rel="apple-touch-startup-image" href="/icons/apple-icon-180.png">
+    
+    <!-- iOS Safari specific -->
+    <meta name="format-detection" content="telephone=no">
+    <meta name="apple-touch-fullscreen" content="yes">
+    
+    <!-- Theme colors -->
+    <meta name="theme-color" content="#465fff">
+    <meta name="msapplication-TileColor" content="#465fff">
+    <meta name="msapplication-navbutton-color" content="#465fff">
+    
+    <!-- Android Chrome -->
     <meta name="mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="Easy Fantasy">
+    
+    <!-- Prevent text size adjustment on orientation change -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <!-- Description for app stores -->
+    <meta name="description" content="Fantasy Football League Management App">
+    <meta name="keywords" content="fantasy football, sports, league management, NFL">
+    
+    <!-- Prevent pinch zoom -->
+    <style>
+      html {
+        touch-action: manipulation;
+        min-height: calc(100% + env(safe-area-inset-top));
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); 
+      }
+      
+      /* Prevent iOS bounce scroll */
+      body {
+        position: fixed;
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+      }
+      
+      #root {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+    </style>
   </head>
   <body class="dark:bg-gray-900">
     <div id="root"></div>

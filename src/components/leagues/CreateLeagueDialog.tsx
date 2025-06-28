@@ -7,17 +7,13 @@ import { Modal } from "../../components/ui/modal";
 import Button from "../../components/ui/button/Button";
 import Label from "../../components/form/Label";
 import Input from "../../components/form/input/InputField";
-import { FunctionsError } from "firebase/functions"; // Import FunctionsError for specific codes
+import Switch from "../form/switch/Switch"; // Assuming you have a Switch component
+import { CreateLeagueResult } from "../../utils/leagues";
 
 interface Props {
   isOpen : boolean;
   onClose(): void;
-  onSuccess(): void; // Consider: onSuccess(leagueId: string);
-}
-
-// Helper type guard to check for Firebase Functions errors
-function isFunctionsError(error: unknown): error is FunctionsError {
-  return typeof error === 'object' && error !== null && 'code' in error && typeof (error as {code: unknown}).code === 'string';
+  onSuccess(result?: CreateLeagueResult): void;
 }
 
 export default function CreateLeagueDialog({ isOpen, onClose, onSuccess }: Props) {
@@ -26,6 +22,9 @@ export default function CreateLeagueDialog({ isOpen, onClose, onSuccess }: Props
   const [leagueName, setLeagueName] = useState("");
   const [teamName, setTeamName] = useState("");
   const [isPublic, setIsPublic] = useState(false);
+  const [enableCaptainFeature, setEnableCaptainFeature] = useState(false);
+  const [captainPointMultiplier, setCaptainPointMultiplier] = useState(1.5);
+  const [enableWeeklyTips, setEnableWeeklyTips] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,46 +34,33 @@ export default function CreateLeagueDialog({ isOpen, onClose, onSuccess }: Props
       setError("You must be logged in to create a league.");
       return;
     }
+    // Validate multiplier if feature is enabled
+    if (enableCaptainFeature && (captainPointMultiplier < 1 || captainPointMultiplier > 3)) {
+        setError("Captain point multiplier must be between 1 and 3.");
+      return;
+    }
     setError(null);
     setLoading(true);
 
     try {
-      // Call the wrapper - no uid needed
-      await createLeague(
+      const result = await createLeague(
         leagueName.trim(),
         teamName.trim(),
-        isPublic
+        isPublic,
+        enableCaptainFeature,
+        captainPointMultiplier,
+        enableWeeklyTips
       );
-      // const result = await createLeague(...); // If you need the ID
-      // onSuccess(result.id);
-      onSuccess();
+      onSuccess(result);
       onClose();
       setLeagueName("");
       setTeamName("");
       setIsPublic(false);
-    } catch (err: unknown) { // Catch as unknown
-      console.error("Error creating league:", err);
-      let message = "Could not create league. Please try again.";
-
-      if (isFunctionsError(err)) {
-        // Handle specific Firebase Functions error codes
-        switch (err.code) {
-          case 'unauthenticated':
-            message = "Authentication error. Please log in again.";
-            break;
-          case 'invalid-argument':
-            message = `Invalid input: ${err.message}`; // Use function's error message
-            break;
-          // Add other specific codes if needed
-          default:
-            message = `An unexpected error occurred (${err.code}): ${err.message}`;
-            break;
-        }
-      } else if (err instanceof Error) {
-        // Handle generic JavaScript Error
-        message = err.message;
-      }
-      setError(message);
+      setEnableCaptainFeature(false); // Reset state
+      setCaptainPointMultiplier(1.5); // Reset state
+    } catch (error) {
+      const errorObj = error as { code: string; message: string };
+      setError(errorObj.message || "Failed to create league. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -115,13 +101,58 @@ export default function CreateLeagueDialog({ isOpen, onClose, onSuccess }: Props
               type="checkbox"
               checked={isPublic}
               onChange={e => setIsPublic(e.target.checked)}
-              className="mr-2"
+              className="mr-2 h-4 w-4 text-brand-600 border-gray-300 rounded focus:ring-brand-500"
               disabled={loading}
             />
-            <label htmlFor="isPublic" className="select-none">
+            <label htmlFor="isPublic" className="select-none text-sm text-gray-700 dark:text-gray-300">
               Public league (anyone can discover & join)
             </label>
           </div>
+
+          {/* Captain Feature Toggle */}
+          <div className="flex items-center justify-between py-2">
+            <Label htmlFor="enableCaptainFeature">Enable Captain Feature</Label>
+            <Switch 
+              label=""
+              defaultChecked={enableCaptainFeature}
+              onChange={setEnableCaptainFeature} 
+              disabled={loading}
+            />
+            {/* Hidden input for form association if Switch doesn't have one or for semantic meaning */}
+            <input type="checkbox" id="enableCaptainFeature" checked={enableCaptainFeature} readOnly className="hidden" />
+          </div>
+
+          {/* Captain Point Multiplier Input (conditional) */}
+          {enableCaptainFeature && (
+            <div>
+              <Label required htmlFor="captainMultiplier">Captain Point Multiplier (1 to 3)</Label>
+              <Input
+                id="captainMultiplier"
+                type="number"
+                value={captainPointMultiplier}
+                onChange={(e) => setCaptainPointMultiplier(parseFloat(e.target.value))}
+                min="1"
+                max="3"
+                step="0.1"
+                required
+                disabled={loading}
+                className="w-full"
+              />
+            </div>
+          )}
+
+          {/* Weekly Tips Toggle */}
+          <div className="flex items-center justify-between py-2">
+            <Label htmlFor="enableWeeklyTips">Enable Weekly Tips</Label>
+            <Switch 
+              label=""
+              defaultChecked={enableWeeklyTips}
+              onChange={setEnableWeeklyTips} 
+              disabled={loading}
+            />
+            <input type="checkbox" id="enableWeeklyTips" checked={enableWeeklyTips} readOnly className="hidden" />
+          </div>
+
           {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         </div>
 

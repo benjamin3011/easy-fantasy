@@ -2,11 +2,12 @@
 import axios from "axios";
 import { logger } from "firebase-functions/v2";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 import { Timestamp } from "firebase-admin/firestore";
 // Import config, helpers, types
 import { statsSyncOptions, secrets, hosts, config } from './config';
-import { safeParseFloat, safeParseInt } from './common';
+import { safeParseFloat, safeParseInt, calculateCurrentNFLWeek } from './common';
 import {
     BoxScoreResponse, BoxScoreBody, GameInfoForWeek,
     FirestoreWeeklySchedule, FirestorePlayerGameStat, FirestoreTeamGameStat,
@@ -31,6 +32,108 @@ const getCurrentSeason = (): number => parseInt(config.CURRENT_NFL_SEASON, 10) |
 
 // Cache for player positions during a single function run
 const playerPositionCache = new Map<string, PlayerPosition | undefined>();
+
+// Process and store game score data in Firestore (consolidated with game stats)
+async function processAndStoreGameScore(gameId: string, week: number, season: number, apiResponse: BoxScoreResponse): Promise<boolean> {
+  try {
+    const apiBody = apiResponse.body;
+    
+    // Parse scores - try multiple sources in order of preference
+    let homeScore = 0;
+    let awayScore = 0;
+    let homeTeam = 'Unknown';
+    let awayTeam = 'Unknown';
+
+    // First try lineScore (most reliable for completed games)
+    if (apiBody.lineScore?.home?.totalPts && apiBody.lineScore?.away?.totalPts) {
+      homeScore = parseInt(apiBody.lineScore.home.totalPts, 10) || 0;
+      awayScore = parseInt(apiBody.lineScore.away.totalPts, 10) || 0;
+      homeTeam = apiBody.lineScore.home.teamAbv || apiBody.home || 'Unknown';
+      awayTeam = apiBody.lineScore.away.teamAbv || apiBody.away || 'Unknown';
+    } 
+    // Fallback to body-level scores
+    else if (apiBody.homePts !== undefined && apiBody.awayPts !== undefined) {
+      homeScore = typeof apiBody.homePts === 'string' ? parseInt(apiBody.homePts, 10) : (apiBody.homePts || 0);
+      awayScore = typeof apiBody.awayPts === 'string' ? parseInt(apiBody.awayPts, 10) : (apiBody.awayPts || 0);
+      homeTeam = apiBody.home || apiBody.teamIDHome || 'Unknown';
+      awayTeam = apiBody.away || apiBody.teamIDAway || 'Unknown';
+    }
+    // Final fallback to team IDs if team names not available
+    else {
+      homeTeam = apiBody.home || apiBody.teamIDHome || 'Unknown';
+      awayTeam = apiBody.away || apiBody.teamIDAway || 'Unknown';
+    }
+    
+    // Parse game status code from body
+    const gameStatusCode = typeof apiBody.gameStatusCode === 'string' 
+      ? parseInt(apiBody.gameStatusCode, 10) 
+      : (apiBody.gameStatusCode || 0);
+
+    // Determine game status - prefer lineScore period, then currentPeriod, then gameStatus
+    let gameStatus = 'Scheduled';
+    if (apiBody.lineScore?.period) {
+      gameStatus = apiBody.lineScore.period;
+    } else if (apiBody.currentPeriod) {
+      gameStatus = apiBody.currentPeriod;
+    } else if (apiBody.gameStatus) {
+      gameStatus = apiBody.gameStatus;
+    } else if (apiBody.period) {
+      gameStatus = apiBody.period;
+    }
+
+    // Create Firestore document for game scores
+    const gameScoreDoc: {
+      gameId: string;
+      season: number;
+      week: number;
+      homeTeam: string;
+      awayTeam: string;
+      homeScore: number;
+      awayScore: number;
+      gameStatus: string;
+      gameStatusCode: number;
+      timeRemaining?: string;
+      quarter?: number;
+      lastUpdated: admin.firestore.Timestamp;
+    } = {
+      gameId,
+      season,
+      week,
+      homeTeam,
+      awayTeam,
+      homeScore: isNaN(homeScore) ? 0 : homeScore,
+      awayScore: isNaN(awayScore) ? 0 : awayScore,
+      gameStatus,
+      gameStatusCode: isNaN(gameStatusCode) ? 0 : gameStatusCode,
+      lastUpdated: admin.firestore.Timestamp.now()
+    };
+
+    // Only include timeRemaining if we have a valid value
+    const gameClock = apiBody.lineScore?.gameClock || apiBody.gameClock;
+    if (gameClock && gameClock.trim() !== '') {
+      gameScoreDoc.timeRemaining = gameClock;
+    }
+
+    // Only include quarter if we have a valid value and game is not final
+    const currentPeriod = apiBody.lineScore?.currentPeriod || apiBody.currentPeriod;
+    if (currentPeriod && currentPeriod !== 'Final' && !currentPeriod.toLowerCase().includes('final')) {
+      // Try to extract quarter number from currentPeriod (e.g., "Q1" -> 1)
+      const quarterMatch = currentPeriod.match(/Q(\d+)/);
+      if (quarterMatch) {
+        gameScoreDoc.quarter = parseInt(quarterMatch[1], 10);
+      }
+    }
+
+    // Store in gameScores collection
+    await db.collection('gameScores').doc(gameId).set(gameScoreDoc);
+    
+    logger.info(`Successfully stored game score for ${gameId}: ${gameScoreDoc.awayTeam} ${gameScoreDoc.awayScore} - ${gameScoreDoc.homeScore} ${gameScoreDoc.homeTeam} (${gameScoreDoc.gameStatus})`);
+    return true;
+  } catch (error) {
+    logger.error(`Error processing game score for ${gameId}:`, error);
+    return false;
+  }
+}
 
 /**
  * Fetches box score data, stores raw stats, API player points,
@@ -80,6 +183,9 @@ async function fetchAndProcessSingleGameStats(gameId: string, week: number, seas
             return false;
         }
 
+        // *** CONSOLIDATED: Process game scores alongside game stats ***
+        await processAndStoreGameScore(gameId, week, season, response.data);
+
         const now = Timestamp.now();
         const gameBatch = db.batch();
         let operationsCount = 0;
@@ -123,10 +229,21 @@ async function fetchAndProcessSingleGameStats(gameId: string, week: number, seas
                     rawBoxScoreStats: rawStatsFromApi, // Store raw
                     fantasyPoints: fantasyPointsFromApi, // *** Store the API's calculated points ***
                     apiFantasyPointsDefault: apiFantasyPointsDefault, // Optional storage
+                    // *** Store game status from API body ***
+                    gameStatus: apiBody.gameStatus || apiBody.period || apiBody.currentPeriod || 'Scheduled',
+                    gameStatusCode: safeParseInt(apiBody.gameStatusCode),
                     lastUpdated: now,
                 };
                 gameBatch.set(gameStatsRef, statsData, { merge: true });
                 operationsCount++;
+
+                // Atomically update season total fantasy points for the player
+                const playerRef = db.collection('players').doc(playerId);
+                gameBatch.update(playerRef, {
+                    seasonFantasyPoints: admin.firestore.FieldValue.increment(fantasyPointsFromApi),
+                    // gamesPlayed is managed by dataSync.ts from API stats for players
+                });
+                operationsCount++; // Increment for the update operation
             }
         }
 
@@ -179,10 +296,24 @@ async function fetchAndProcessSingleGameStats(gameId: string, week: number, seas
                 aggregatedStatsForCalc: gameStatsForCalc,
                 // Store calculated team points
                 fantasyPointsPassing, fantasyPointsRushing, fantasyPointsDefense, fantasyPointsSpecialTeams,
+                // *** Store game status from API body ***
+                gameStatus: apiBody.gameStatus || apiBody.period || apiBody.currentPeriod || 'Scheduled',
+                gameStatusCode: safeParseInt(apiBody.gameStatusCode),
                 lastUpdated: now,
             };
             gameBatch.set(gameStatsRef, statsData, { merge: true });
             operationsCount++;
+
+            // Atomically update season total fantasy points and games played for the team
+            const teamRef = db.collection('teams').doc(teamId);
+            gameBatch.update(teamRef, {
+                seasonFP_Passing: admin.firestore.FieldValue.increment(fantasyPointsPassing),
+                seasonFP_Rushing: admin.firestore.FieldValue.increment(fantasyPointsRushing),
+                seasonFP_Defense: admin.firestore.FieldValue.increment(fantasyPointsDefense),
+                seasonFP_ST: admin.firestore.FieldValue.increment(fantasyPointsSpecialTeams),
+                // gamesPlayed: admin.firestore.FieldValue.increment(1) // Removed: gamesPlayed for teams is now managed by dataSync.ts from season record
+            });
+            operationsCount++; // Increment for the update operation
         }
 
         // Commit batch
@@ -280,3 +411,67 @@ export const manualFetchAndProcessGameStatsForWeek = onCall(
 );
 
 // Optional: Scheduled function would call fetchAndProcessSingleGameStats for recent games
+
+// Scheduled function to auto-sync both game stats and game scores during game days
+// Run every 5 minutes during typical NFL game times (Thursday, Sunday, Monday)
+export const scheduledGameStatsAndScoresSync = onSchedule(
+  {
+    ...statsSyncOptions,
+    schedule: '*/5 * * * *', // Every 5 minutes
+    timeZone: 'America/New_York', // NFL timezone
+  },
+  async () => {
+    try {
+      logger.info('Starting scheduled game stats and scores sync...');
+      
+      const currentWeek = calculateCurrentNFLWeek();
+      const currentSeason = getCurrentSeason();
+      
+      logger.info(`Auto-syncing game stats and scores for current week ${currentWeek}, season ${currentSeason}`);
+      
+      // Get the weekly schedule to find all games for this week
+      const scheduleDocId = `${currentSeason}_week_${currentWeek}`;
+      const scheduleDocRef = db.collection('nfl_schedules').doc(scheduleDocId);
+      const scheduleDoc = await scheduleDocRef.get();
+      
+      if (!scheduleDoc.exists) {
+        logger.warn(`No schedule found for week ${currentWeek}, season ${currentSeason}. Skipping scheduled sync.`);
+        return;
+      }
+
+      const scheduleData = scheduleDoc.data() as FirestoreWeeklySchedule | undefined;
+      const games = scheduleData?.games || [];
+      
+      if (games.length === 0) {
+        logger.warn(`No games found in schedule for week ${currentWeek}. Skipping scheduled sync.`);
+        return;
+      }
+
+      logger.info(`Found ${games.length} games to process for week ${currentWeek}`);
+
+      // Process each game (this will update both game stats and game scores)
+      let successCount = 0;
+      let failureCount = 0;
+      
+      for (const game of games) {
+        if (game.gameID) {
+          try {
+            const success = await fetchAndProcessSingleGameStats(game.gameID, currentWeek, currentSeason);
+            if (success) {
+              successCount++;
+            } else {
+              failureCount++;
+            }
+          } catch (error) {
+            logger.error(`Error processing game ${game.gameID}:`, error);
+            failureCount++;
+          }
+        }
+      }
+
+      logger.info(`Scheduled sync completed for week ${currentWeek}: ${successCount} successful, ${failureCount} failed`);
+    } catch (error) {
+      logger.error('Error in scheduled game stats and scores sync:', error);
+    }
+  }
+);

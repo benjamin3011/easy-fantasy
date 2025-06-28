@@ -6,14 +6,12 @@ import { useAuth } from "../context/AuthContext";
 
 // Assume these icons are imported from an icon library
 import {
-  ChatIcon,
   ChevronDownIcon,
-  DocsIcon,
   GridIcon,
   ListIcon,
   HorizontaLDots,
-  MailIcon,
   UserCircleIcon,
+  BoltIcon,
 } from "../icons";
 import { useSidebar } from "../context/SidebarContext";
 
@@ -28,7 +26,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   {
     icon: <GridIcon />,
-    name: "Dashboard",
+    name: "Home",
     path: "/",
   },
   {
@@ -37,8 +35,18 @@ const navItems: NavItem[] = [
     path: "/leagues",
   },
   {
+    icon: <BoltIcon />,
+    name: "Lineup",
+    path: "/lineup",
+  },
+  {
+    icon: <BoltIcon />, // We'll change this icon later
+    name: "Tips",
+    path: "/tips",
+  },
+  {
     icon: <UserCircleIcon />,
-    name: "User Profile",
+    name: "Profile",
     path: "/profile",
   },
   {
@@ -50,38 +58,19 @@ const navItems: NavItem[] = [
 ];
 
 const othersItems: NavItem[] = [
-  
+  // Settings moved to User Profile page
 ];
 
-const supportItems: NavItem[] = [
-  {
-    icon: <ChatIcon />,
-    name: "Chat",
-    path: "/chat",
-  },
-  {
-    icon: <MailIcon />,
-    name: "Email",
-    subItems: [
-      { name: "Inbox", path: "/inbox" },
-      { name: "Details", path: "/inbox-details" },
-    ],
-  },
-  {
-    icon: <DocsIcon />,
-    name: "Invoice",
-    path: "/invoice",
-  },
-];
+// Removed supportItems for cleaner navigation
 
 const AppSidebar: React.FC = () => {
   // --- Get user and admin status ---
   const { isAdmin } = useAuth();
-  const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
+  const { isExpanded, isMobileOpen, isHovered, setIsHovered, closeMobileSidebar } = useSidebar();
   const location = useLocation();
 
   const [openSubmenu, setOpenSubmenu] = useState<{
-    type: "main" | "support" | "others";
+    type: "main" | "others";
     index: number;
   } | null>(null);
   const [subMenuHeight, setSubMenuHeight] = useState<Record<string, number>>(
@@ -97,19 +86,17 @@ const AppSidebar: React.FC = () => {
 
   useEffect(() => {
     let submenuMatched = false;
-    ["main", "support", "others"].forEach((menuType) => {
+    ["main", "others"].forEach((menuType) => {
       const items =
         menuType === "main"
           ? navItems
-          : menuType === "support"
-          ? supportItems
           : othersItems;
       items.forEach((nav, index) => {
         if (nav.subItems) {
           nav.subItems.forEach((subItem) => {
             if (isActive(subItem.path)) {
               setOpenSubmenu({
-                type: menuType as "main" | "support" | "others",
+                type: menuType as "main" | "others",
                 index,
               });
               submenuMatched = true;
@@ -122,7 +109,7 @@ const AppSidebar: React.FC = () => {
     if (!submenuMatched) {
       setOpenSubmenu(null);
     }
-  }, [location, isActive, isAdmin]);
+  }, [location, isActive]);
 
   useEffect(() => {
     if (openSubmenu !== null) {
@@ -138,7 +125,7 @@ const AppSidebar: React.FC = () => {
 
   const handleSubmenuToggle = (
     index: number,
-    menuType: "main" | "support" | "others"
+    menuType: "main" | "others"
   ) => {
     setOpenSubmenu((prevOpenSubmenu) => {
       if (
@@ -152,9 +139,16 @@ const AppSidebar: React.FC = () => {
     });
   };
 
+  const handleNavigationClick = () => {
+    // Close mobile sidebar when navigation occurs
+    if (isMobileOpen) {
+      closeMobileSidebar();
+    }
+  };
+
   const renderMenuItems = (
     items: NavItem[],
-    menuType: "main" | "support" | "others"
+    menuType: "main" | "others"
   ) => (
     <ul className="flex flex-col gap-4">
       {items.filter(item => !item.adminOnly || isAdmin)
@@ -200,6 +194,7 @@ const AppSidebar: React.FC = () => {
             nav.path && (
               <Link
                 to={nav.path}
+                onClick={handleNavigationClick}
                 className={`menu-item group ${
                   isActive(nav.path) ? "menu-item-active" : "menu-item-inactive"
                 }`}
@@ -237,6 +232,7 @@ const AppSidebar: React.FC = () => {
                   <li key={subItem.name}>
                     <Link
                       to={subItem.path}
+                      onClick={handleNavigationClick}
                       className={`menu-dropdown-item ${
                         isActive(subItem.path)
                           ? "menu-dropdown-item-active"
@@ -290,7 +286,7 @@ const AppSidebar: React.FC = () => {
             : "w-[90px]"
         }
         ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}
-        lg:translate-x-0`}
+        lg:translate-x-0 hidden lg:flex`}
       onMouseEnter={() => !isExpanded && setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -299,7 +295,7 @@ const AppSidebar: React.FC = () => {
           !isExpanded && !isHovered ? "lg:justify-center" : "justify-start"
         }`}
       >
-        <Link to="/">
+        <Link to="/" onClick={handleNavigationClick}>
           {isExpanded || isHovered || isMobileOpen ? (
             <>
               <img
@@ -346,6 +342,8 @@ const AppSidebar: React.FC = () => {
               </h2>
               {renderMenuItems(navItems, "main")}
             </div>
+
+
             
           </div>
         </nav>

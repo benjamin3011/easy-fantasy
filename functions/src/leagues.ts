@@ -12,17 +12,33 @@ const db = admin.firestore();
 
 // Create League
 export const createLeague = onCall({ ...leagueOptions }, async (request) => {
-  if (!request.auth) { throw new HttpsError('unauthenticated', 'Auth required.'); }
-  const { name, teamName, isPublic = false } = request.data;
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Authentication is required to create a league.');
+  }
+
+  const { name, teamName, isPublic = false, enableCaptainFeature = false, captainPointMultiplier = 1.5, enableWeeklyTips = false } = request.data;
+  const uid = request.auth.uid;
+
   if (!name || typeof name !== 'string' || name.trim() === '') { throw new HttpsError('invalid-argument', 'League name required.'); }
   if (!teamName || typeof teamName !== 'string' || teamName.trim() === '') { throw new HttpsError('invalid-argument', 'Team name required.'); }
   if (typeof isPublic !== 'boolean') { throw new HttpsError('invalid-argument', 'isPublic must be boolean.'); }
-  const uid = request.auth.uid;
+  if (typeof enableCaptainFeature !== 'boolean') { throw new HttpsError('invalid-argument', 'enableCaptainFeature must be boolean.'); }
+  if (typeof captainPointMultiplier !== 'number' || captainPointMultiplier < 1 || captainPointMultiplier > 3) {
+    throw new HttpsError('invalid-argument', 'captainPointMultiplier must be a number between 1 and 3.');
+  }
+
   const sixDigitCode = () => Math.floor(100_000 + Math.random() * 900_000).toString();
   try {
     const leagueRef = await db.collection('leagues').add({
-      name: name.trim(), adminUid: uid, code: sixDigitCode(), isPublic,
-      members: [{ uid, teamName: teamName.trim() }], memberUids: [uid],
+      name: name.trim(),
+      adminUid: uid,
+      code: sixDigitCode(),
+      isPublic,
+      enableCaptainFeature, // Store this
+      captainPointMultiplier, // Store this
+      enableWeeklyTips, // Store this
+      members: [{ uid, teamName: teamName.trim() }],
+      memberUids: [uid],
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     logger.log(`League created: ${leagueRef.id} by ${uid}`); return { id: leagueRef.id };
@@ -102,5 +118,101 @@ export const renameLeague = onCall({ ...leagueOptions }, async (request) => {
         const errorMessage = error instanceof Error ? error.message : String(error);
         logger.error(`Internal error renaming league ${leagueId}:`, { error: errorMessage, detail: error, userId: uid });
         throw new HttpsError('internal', 'Server error renaming league.');
+    }
+});
+
+// Update League Captain Settings
+export const updateLeagueCaptainSettings = onCall({ ...leagueOptions }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Authentication is required to update league settings.');
+  }
+  const { leagueId, enableCaptainFeature, captainPointMultiplier } = request.data;
+  const uid = request.auth.uid;
+
+  // Validate payload
+  if (!leagueId || typeof leagueId !== 'string') {
+    throw new HttpsError('invalid-argument', 'League ID is required.');
+  }
+  if (typeof enableCaptainFeature !== 'boolean') {
+    throw new HttpsError('invalid-argument', 'enableCaptainFeature must be a boolean value.');
+  }
+  if (typeof captainPointMultiplier !== 'number' || captainPointMultiplier < 1 || captainPointMultiplier > 3) {
+    throw new HttpsError('invalid-argument', 'captainPointMultiplier must be a number between 1 and 3.');
+  }
+
+  const leagueRef = db.doc(`leagues/${leagueId}`);
+
+  try {
+    const leagueDoc = await leagueRef.get();
+    if (!leagueDoc.exists) {
+      throw new HttpsError('not-found', 'League not found.');
+    }
+
+    const leagueData = leagueDoc.data();
+    if (!leagueData || leagueData.adminUid !== uid) {
+      throw new HttpsError('permission-denied', 'You must be the league admin to change these settings.');
+    }
+
+    // Update the league document
+    await leagueRef.update({
+      enableCaptainFeature,
+      captainPointMultiplier,
+    });
+
+    logger.log(`League ${leagueId} captain settings updated by admin ${uid}: enabled=${enableCaptainFeature}, multiplier=${captainPointMultiplier}`);
+    return { success: true, message: 'League captain settings updated successfully.' };
+  } catch (error: unknown) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`Error updating captain settings for league ${leagueId}:`, { error: errorMessage, detail: error, userId: uid });
+    throw new HttpsError('internal', 'An internal error occurred while updating league settings.');
+    }
+});
+
+// Update League Weekly Tips Settings
+export const updateLeagueWeeklyTipsSettings = onCall({ ...leagueOptions }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Authentication is required to update league settings.');
+  }
+  const { leagueId, enableWeeklyTips } = request.data;
+  const uid = request.auth.uid;
+
+  // Validate payload
+  if (!leagueId || typeof leagueId !== 'string') {
+    throw new HttpsError('invalid-argument', 'League ID is required.');
+  }
+  if (typeof enableWeeklyTips !== 'boolean') {
+    throw new HttpsError('invalid-argument', 'enableWeeklyTips must be a boolean value.');
+  }
+
+  const leagueRef = db.doc(`leagues/${leagueId}`);
+
+  try {
+    const leagueDoc = await leagueRef.get();
+    if (!leagueDoc.exists) {
+      throw new HttpsError('not-found', 'League not found.');
+    }
+
+    const leagueData = leagueDoc.data();
+    if (!leagueData || leagueData.adminUid !== uid) {
+      throw new HttpsError('permission-denied', 'You must be the league admin to change these settings.');
+    }
+
+    // Update the league document
+    await leagueRef.update({
+      enableWeeklyTips,
+    });
+
+    logger.log(`League ${leagueId} weekly tips settings updated by admin ${uid}: enabled=${enableWeeklyTips}`);
+    return { success: true, message: 'League weekly tips settings updated successfully.' };
+  } catch (error: unknown) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`Error updating weekly tips settings for league ${leagueId}:`, { error: errorMessage, detail: error, userId: uid });
+    throw new HttpsError('internal', 'An internal error occurred while updating league settings.');
     }
 });

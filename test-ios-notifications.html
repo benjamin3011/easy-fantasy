@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>📱 iOS Push Notifications Test</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    
+    <!-- iOS PWA Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Easy Fantasy">
+    <link rel="apple-touch-icon" href="/icons/apple-icon-180.png">
+    
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: white;
+        }
+        
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 24px;
+        }
+        
+        .subtitle {
+            text-align: center;
+            opacity: 0.8;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .test-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 15px 0;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .test-title {
+            font-weight: bold;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            display: inline-block;
+            margin-bottom: 15px;
+        }
+        
+        .status.success { background: #4CAF50; }
+        .status.error { background: #f44336; }
+        .status.warning { background: #ff9800; }
+        .status.info { background: #2196F3; }
+        
+        button {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            padding: 15px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 10px 0;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+        }
+        
+        button:hover, button:active {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: translateY(-2px);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .info-box {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 15px 0;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .step-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .step-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .step-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .emoji {
+            font-size: 20px;
+            margin-right: 8px;
+        }
+        
+        .url-display {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📱 iOS Push Test</h1>
+        <p class="subtitle">Easy Fantasy PWA Notifications</p>
+        
+        <div class="url-display" id="currentUrl">
+            Loading URL...
+        </div>
+        
+        <!-- iOS Compatibility Check -->
+        <div class="test-section">
+            <div class="test-title">
+                <span class="emoji">🍎</span>
+                iOS Compatibility
+            </div>
+            <div id="iosStatus" class="status info">Checking...</div>
+            <div id="iosDetails"></div>
+        </div>
+        
+        <!-- PWA Installation -->
+        <div class="test-section">
+            <div class="test-title">
+                <span class="emoji">📲</span>
+                PWA Installation
+            </div>
+            <div id="pwaStatus" class="status info">Checking...</div>
+            <div class="info-box">
+                <strong>For iOS Push Notifications:</strong>
+                <ol class="step-list">
+                    <li>1️⃣ Tap the Share button in Safari</li>
+                    <li>2️⃣ Select "Add to Home Screen"</li>
+                    <li>3️⃣ Open the app from your home screen</li>
+                    <li>4️⃣ Then test notifications</li>
+                </ol>
+            </div>
+            <button onclick="checkPWAInstallation()">🔄 Check PWA Status</button>
+        </div>
+        
+        <!-- Service Worker -->
+        <div class="test-section">
+            <div class="test-title">
+                <span class="emoji">⚙️</span>
+                Service Worker
+            </div>
+            <div id="swStatus" class="status info">Checking...</div>
+            <button onclick="registerServiceWorker()">📝 Register Service Worker</button>
+        </div>
+        
+        <!-- Push Notifications -->
+        <div class="test-section">
+            <div class="test-title">
+                <span class="emoji">🔔</span>
+                Push Notifications
+            </div>
+            <div id="notifStatus" class="status info">Checking...</div>
+            <button onclick="requestNotificationPermission()" id="permissionBtn">
+                🔐 Request Permission
+            </button>
+            <button onclick="testBasicNotification()" id="basicNotifBtn" disabled>
+                📢 Test Basic Notification
+            </button>
+            <button onclick="testServiceWorkerNotification()" id="swNotifBtn" disabled>
+                🔧 Test Service Worker Notification
+            </button>
+        </div>
+        
+        <!-- Firebase FCM Test -->
+        <div class="test-section">
+            <div class="test-title">
+                <span class="emoji">🔥</span>
+                Firebase Setup
+            </div>
+            <div id="fcmStatus" class="status info">Checking...</div>
+            <button onclick="testFirebaseMessaging()" id="fcmBtn" disabled>
+                🚀 Test Firebase Setup
+            </button>
+            <p class="text-sm text-gray-600 mt-2">
+                Tests Firebase initialization and service worker registration. 
+                FCM token generation requires authentication in the main app.
+            </p>
+        </div>
+        
+        <!-- Real FCM Testing -->
+        <div class="test-section">
+            <div class="test-title">
+                <span class="emoji">🎯</span>
+                Real FCM Testing
+            </div>
+            <div class="info-box">
+                <p><strong>To test actual push notifications:</strong></p>
+                <ol class="list-decimal list-inside space-y-1 mt-2">
+                    <li>Go to the main app and sign in</li>
+                    <li>Enable notifications in User Profile</li>
+                    <li>Join a league and set up a lineup</li>
+                    <li>The system will send real notifications before game deadlines</li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="test-section">
+            <button onclick="window.location.href='/'">🏠 Go to Main App</button>
+            <button onclick="window.location.href='/test-notification.html'">🧪 Desktop Test Page</button>
+        </div>
+    </div>
+
+    <script>
+        // Display current URL
+        document.getElementById('currentUrl').textContent = window.location.href;
+        
+        // iOS Detection
+        function isIOS() {
+            return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        }
+        
+        function isInStandaloneMode() {
+            return window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+        }
+        
+        function checkIOSCompatibility() {
+            const statusEl = document.getElementById('iosStatus');
+            const detailsEl = document.getElementById('iosDetails');
+            
+            if (isIOS()) {
+                const version = navigator.userAgent.match(/OS (\d+)_(\d+)/);
+                const majorVersion = version ? parseInt(version[1]) : 0;
+                
+                if (majorVersion >= 16) {
+                    statusEl.className = 'status success';
+                    statusEl.textContent = '✅ iOS Compatible';
+                    detailsEl.innerHTML = `
+                        <div class="info-box">
+                            iOS ${majorVersion} detected. Push notifications are supported!
+                            ${isInStandaloneMode() ? '<br><strong>✅ Running as PWA</strong>' : '<br><strong>⚠️ Add to Home Screen for full PWA features</strong>'}
+                        </div>
+                    `;
+                } else {
+                    statusEl.className = 'status warning';
+                    statusEl.textContent = '⚠️ Limited Support';
+                    detailsEl.innerHTML = `
+                        <div class="info-box">
+                            iOS ${majorVersion} detected. Push notifications require iOS 16.4+
+                        </div>
+                    `;
+                }
+            } else {
+                statusEl.className = 'status info';
+                statusEl.textContent = '📱 Non-iOS Device';
+                detailsEl.innerHTML = `
+                    <div class="info-box">
+                        This test is optimized for iOS, but notifications should work on most modern browsers.
+                    </div>
+                `;
+            }
+        }
+        
+        function checkPWAInstallation() {
+            const statusEl = document.getElementById('pwaStatus');
+            
+            if (isInStandaloneMode()) {
+                statusEl.className = 'status success';
+                statusEl.textContent = '✅ Running as PWA';
+            } else if (isIOS()) {
+                statusEl.className = 'status warning';
+                statusEl.textContent = '⚠️ Add to Home Screen';
+            } else {
+                statusEl.className = 'status info';
+                statusEl.textContent = '📱 Browser Mode';
+            }
+        }
+        
+        async function registerServiceWorker() {
+            const statusEl = document.getElementById('swStatus');
+            
+            if ('serviceWorker' in navigator) {
+                try {
+                    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+                    statusEl.className = 'status success';
+                    statusEl.textContent = '✅ Service Worker Registered';
+                    console.log('Service Worker registered:', registration);
+                } catch (error) {
+                    statusEl.className = 'status error';
+                    statusEl.textContent = '❌ Registration Failed';
+                    console.error('Service Worker registration failed:', error);
+                }
+            } else {
+                statusEl.className = 'status error';
+                statusEl.textContent = '❌ Not Supported';
+            }
+        }
+        
+        async function requestNotificationPermission() {
+            const statusEl = document.getElementById('notifStatus');
+            const permissionBtn = document.getElementById('permissionBtn');
+            const basicBtn = document.getElementById('basicNotifBtn');
+            const swBtn = document.getElementById('swNotifBtn');
+            const fcmBtn = document.getElementById('fcmBtn');
+            
+            if (!('Notification' in window)) {
+                statusEl.className = 'status error';
+                statusEl.textContent = '❌ Not Supported';
+                return;
+            }
+            
+            try {
+                const permission = await Notification.requestPermission();
+                
+                if (permission === 'granted') {
+                    statusEl.className = 'status success';
+                    statusEl.textContent = '✅ Permission Granted';
+                    basicBtn.disabled = false;
+                    swBtn.disabled = false;
+                    fcmBtn.disabled = false;
+                    permissionBtn.textContent = '✅ Permission Granted';
+                } else {
+                    statusEl.className = 'status error';
+                    statusEl.textContent = '❌ Permission Denied';
+                }
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.textContent = '❌ Error: ' + error.message;
+            }
+        }
+        
+        function testBasicNotification() {
+            if (Notification.permission === 'granted') {
+                new Notification('🎉 iOS Test Success!', {
+                    body: 'Basic notification working on iOS through ngrok!',
+                    icon: '/icons/favicon-96x96.png',
+                    badge: '/icons/favicon-96x96.png',
+                    tag: 'ios-test',
+                    requireInteraction: true
+                });
+            }
+        }
+        
+        async function testServiceWorkerNotification() {
+            if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+                const registration = await navigator.serviceWorker.ready;
+                registration.showNotification('🔧 Service Worker Test', {
+                    body: 'Service Worker notification working on iOS!',
+                    icon: '/icons/favicon-96x96.png',
+                    badge: '/icons/favicon-96x96.png',
+                    tag: 'sw-test',
+                    requireInteraction: true,
+                    actions: [
+                        { action: 'open', title: 'Open App' },
+                        { action: 'close', title: 'Close' }
+                    ]
+                });
+            }
+        }
+        
+        async function testFirebaseMessaging() {
+            const statusEl = document.getElementById('fcmStatus');
+            
+            try {
+                statusEl.className = 'status info';
+                statusEl.textContent = '🔄 Testing Firebase Messaging...';
+                
+                // Import Firebase modules
+                const { initializeApp } = await import('https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js');
+                const { getMessaging, getToken } = await import('https://www.gstatic.com/firebasejs/9.22.1/firebase-messaging.js');
+                
+                // Firebase configuration (same as main app)
+                const firebaseConfig = {
+                    apiKey: 'AIzaSyA3WWFEVtzqan9JnYTNJ1WENH4cazYrmlQ',
+                    authDomain: 'easy-fantasy.firebaseapp.com',
+                    projectId: 'easy-fantasy',
+                    storageBucket: 'easy-fantasy.firebasestorage.app',
+                    messagingSenderId: '1004764027197',
+                    appId: '1:1004764027197:web:c5823701ba18f86e8d8d54',
+                };
+                
+                // Initialize Firebase
+                const app = initializeApp(firebaseConfig);
+                const messaging = getMessaging(app);
+                
+                // Register service worker
+                if ('serviceWorker' in navigator) {
+                    await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+                    await navigator.serviceWorker.ready;
+                }
+                
+                // Test Firebase messaging setup (without token generation for unauthenticated users)
+                statusEl.className = 'status success';
+                statusEl.textContent = '✅ Firebase Messaging Initialized';
+                
+                // Note: FCM token generation requires user authentication
+                // In the real app, this happens after user login
+                console.log('Firebase messaging initialized successfully');
+                console.log('Note: FCM token generation requires authentication in the main app');
+                
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.textContent = '❌ Firebase Error: ' + error.message;
+                console.error('Firebase messaging error:', error);
+            }
+        }
+        
+        // Initialize checks on page load
+        window.addEventListener('load', () => {
+            checkIOSCompatibility();
+            checkPWAInstallation();
+            registerServiceWorker();
+            
+            // Check notification permission status
+            if ('Notification' in window) {
+                const statusEl = document.getElementById('notifStatus');
+                const basicBtn = document.getElementById('basicNotifBtn');
+                const swBtn = document.getElementById('swNotifBtn');
+                const fcmBtn = document.getElementById('fcmBtn');
+                
+                if (Notification.permission === 'granted') {
+                    statusEl.className = 'status success';
+                    statusEl.textContent = '✅ Permission Already Granted';
+                    basicBtn.disabled = false;
+                    swBtn.disabled = false;
+                    fcmBtn.disabled = false;
+                    document.getElementById('permissionBtn').textContent = '✅ Permission Granted';
+                } else if (Notification.permission === 'denied') {
+                    statusEl.className = 'status error';
+                    statusEl.textContent = '❌ Permission Denied';
+                } else {
+                    statusEl.className = 'status warning';
+                    statusEl.textContent = '⚠️ Permission Required';
+                }
+            }
+        });
+    </script>
+</body>
+</html> 

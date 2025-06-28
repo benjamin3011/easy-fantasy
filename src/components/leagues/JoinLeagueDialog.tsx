@@ -56,16 +56,16 @@ export default function JoinLeagueDialog({ isOpen, onClose, onSuccess }: Props) 
       if (isFunctionsError(err)) {
         // Handle specific Firebase Functions error codes
         switch (err.code) {
-            case 'unauthenticated':
+            case 'functions/unauthenticated':
                 message = "Authentication error. Please log in again.";
                 break;
-            case 'not-found':
+            case 'functions/not-found':
                 message = "League with this code not found.";
                 break;
-            case 'already-exists':
+            case 'functions/already-exists':
                 message = "You are already a member of this league.";
                 break;
-            case 'invalid-argument':
+            case 'functions/invalid-argument':
                 message = `Invalid input: ${err.message}`;
                 break;
             default:

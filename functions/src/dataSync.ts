@@ -48,6 +48,7 @@ async function fetchTeamRosterFromApi(teamId: string, teamAbv: string): Promise<
 // --- Extract Player Data Helper (Stores Raw Stats Object, Parses API FP) ---
 const extractPlayerData = (
     player: Tank01ApiPlayer,
+    teamFullName: string,
     nextOpponent: string,
     nextGameId: string | null,
     byeWeek: number | null,
@@ -77,6 +78,7 @@ const extractPlayerData = (
         fullName: player.longName, firstName, lastName,
         position: player.pos as 'QB' | 'RB' | 'WR' | 'TE', // Already filtered
         nflTeamId: player.teamID, nflTeamAbbreviation: player.team,
+        nflTeamFullName: teamFullName ?? player.team,
         jerseyNumber: player.jerseyNum ?? null,
         injuryData: player.injury ?? null,
         headshotUrl: player.espnHeadshot ?? null,
@@ -87,7 +89,9 @@ const extractPlayerData = (
         // Store API's FP calculation (already parsed)
         apiSeasonFantasyPoints: removeUndefinedFields(apiSeasonFantasyPoints),
         // Add gamesPlayed separately if needed for direct access/queries
-        gamesPlayed: safeParseInt(seasonStatsApi?.gamesPlayed),
+        gamesPlayed: safeParseInt(seasonStatsApi?.gamesPlayed), // This will be used for PPG denominator
+        // Initialize custom fantasy points accumulator
+        // seasonFantasyPoints: 0, // Removed: This will be managed by statsSync.ts
     };
 
     // Clean up top-level undefined fields before returning
@@ -152,17 +156,19 @@ async function updateTeamsAndPlayers() {
         const teamRef = db.collection('teams').doc(team.teamID);
 
         // Find next game info
-        let nextGame = null; let nextGameId: string | null = null;
-        if (team.teamSchedule && typeof team.teamSchedule === 'object') { // Check if it's an object
-           for (const gameId in team.teamSchedule) {
-                // Ensure gameId is own property and game object exists
-                if (Object.prototype.hasOwnProperty.call(team.teamSchedule, gameId)) {
-                    const game = team.teamSchedule[gameId];
-                    // Check game structure and properties
+        let nextGame = null; 
+        let nextGameId: string | null = null;
+
+        if (team.teamSchedule && typeof team.teamSchedule === 'object') { 
+           for (const gameId_from_schedule in team.teamSchedule) {
+                if (Object.prototype.hasOwnProperty.call(team.teamSchedule, gameId_from_schedule)) {
+                    const game = team.teamSchedule[gameId_from_schedule];
                     if (game && game.gameWeek && game.seasonType === "Regular Season") {
                         const gameWeekNumber = safeParseInt(game.gameWeek.split(' ')[1]);
                         if (gameWeekNumber === currentWeek) {
-                            nextGame = game; nextGameId = gameId; break;
+                            nextGame = game; 
+                            nextGameId = gameId_from_schedule; 
+                            break;
                         }
                     }
                 }
@@ -170,32 +176,36 @@ async function updateTeamsAndPlayers() {
         }
         const nextOpponent = nextGame ? (nextGame.home === team.teamAbv ? `vs ${nextGame.away}` : `@ ${nextGame.home}`) : 'BYE / TBD';
         const byeWeekStr = team.byeWeeks?.[config.CURRENT_NFL_SEASON]?.[0];
-        const byeWeek: number | null = byeWeekStr ? safeParseInt(byeWeekStr) : null; // Use safeParseInt
+        const byeWeek: number | null = byeWeekStr ? safeParseInt(byeWeekStr) : null;
 
         // Prepare Team Data (Safely parse record, include teamStats)
+        const wins = safeParseInt(team.wins);
+        const losses = safeParseInt(team.loss);
+        const ties = safeParseInt(team.tie);
+        const gamesPlayed = wins + losses + ties; // Calculate gamesPlayed from season record
+
         const teamData = {
             teamId: team.teamID,
             abbreviation: team.teamAbv,
             city: team.teamCity ?? null,
             name: team.teamName ?? null,
-            fullName: (team.teamCity && team.teamName) ? `${team.teamCity} ${team.teamName}` : null,
+            fullName: (team.teamCity && team.teamName) ? `${team.teamCity} ${team.teamName}` : 'N/A',
             conference: team.conferenceAbv ?? null,
             division: team.division ?? null,
             logoUrl: team.espnLogo1 ?? null,
-            byeWeek: byeWeek, // Already number or null
+            byeWeek: byeWeek,
             nextOpponent: nextOpponent,
-            nextGameId: nextGameId, // Already string or null
+            nextGameId: nextGameId,
             lastUpdated: now,
-            // Safely parse wins/losses/ties, default to 0
             seasonRecord: {
-                wins: safeParseInt(team.wins),
-                losses: safeParseInt(team.loss), // Check API: loss vs losses?
-                ties: safeParseInt(team.tie),
+                wins: wins,
+                losses: losses,
+                ties: ties,
             },
-            // Store the raw season stats object, default to empty object
+            gamesPlayed: gamesPlayed, // Store the calculated gamesPlayed
             seasonTeamStats: (team.teamStats && typeof team.teamStats === 'object') ? team.teamStats : {},
+            // Accumulator fields (seasonFP_...) are managed by statsSync.ts
         };
-        // removeUndefinedFields might not be needed if defaults cover all cases
         batch.set(teamRef, teamData, { merge: true });
 
         // Fetch Roster
@@ -204,13 +214,13 @@ async function updateTeamsAndPlayers() {
         // Process Roster Players
         for (const player of rosterPlayers) {
             if (!player.playerID) continue;
-            // extractPlayerData returns object or null
-            const playerData = extractPlayerData(player, nextOpponent, nextGameId, byeWeek, now);
-            if (playerData) { // Check if data was returned (relevant position)
+            // Reverted call to extractPlayerData
+            const playerDataToSet = extractPlayerData(player, teamData.fullName, nextOpponent, nextGameId, byeWeek, now);
+            if (playerDataToSet) { // Renamed to avoid conflict with outer playerData if any scope issues, though likely fine
                 activePlayerIds.add(player.playerID);
                 const playerRef = db.collection('players').doc(player.playerID);
                 // playerData is already cleaned by removeUndefinedFields
-                batch.set(playerRef, playerData, { merge: true });
+                batch.set(playerRef, playerDataToSet, { merge: true });
             }
         }
         logger.debug(`Processed roster for ${team.teamAbv}.`);

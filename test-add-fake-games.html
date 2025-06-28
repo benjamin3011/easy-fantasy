@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Fake Games - Easy Fantasy</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: 500;
+        }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        label {
+            display: block;
+            margin-top: 15px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏈 Add Fake Games for Testing</h1>
+        <p>This tool adds fake games to the current week's schedule for testing notifications.</p>
+
+        <div id="auth-status" class="status info">Checking authentication...</div>
+        <button id="sign-in-btn" onclick="signIn()" style="display: none;">Sign In</button>
+
+        <div id="game-form" style="display: none;">
+            <h2>Add Test Game</h2>
+            
+            <label for="home-team">Home Team:</label>
+            <input type="text" id="home-team" value="KC" placeholder="e.g., KC">
+            
+            <label for="away-team">Away Team:</label>
+            <input type="text" id="away-team" value="BAL" placeholder="e.g., BAL">
+            
+            <label for="minutes-from-now">Minutes from now:</label>
+            <select id="minutes-from-now">
+                <option value="5">5 minutes</option>
+                <option value="15">15 minutes</option>
+                <option value="30" selected>30 minutes</option>
+                <option value="45">45 minutes</option>
+                <option value="60">60 minutes</option>
+            </select>
+            
+            <button onclick="addFakeGame()">Add Fake Game</button>
+            <button onclick="clearSchedule()">Clear All Games</button>
+        </div>
+
+        <div id="status" class="status info">Ready to add fake games...</div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js';
+        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js';
+        import { getFirestore, doc, setDoc, getDoc } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore.js';
+
+        // Firebase config
+        const firebaseConfig = {
+            apiKey: 'AIzaSyA3WWFEVtzqan9JnYTNJ1WENH4cazYrmlQ',
+            authDomain: 'easy-fantasy.firebaseapp.com',
+            projectId: 'easy-fantasy',
+            storageBucket: 'easy-fantasy.firebasestorage.app',
+            messagingSenderId: '1004764027197',
+            appId: '1:1004764027197:web:c5823701ba18f86e8d8d54',
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let currentUser = null;
+
+        function updateStatus(message, type = 'info') {
+            const element = document.getElementById('status');
+            element.textContent = message;
+            element.className = `status ${type}`;
+        }
+
+        // Authentication
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) {
+                document.getElementById('auth-status').textContent = `✅ Signed in as: ${user.email}`;
+                document.getElementById('auth-status').className = 'status success';
+                document.getElementById('sign-in-btn').style.display = 'none';
+                document.getElementById('game-form').style.display = 'block';
+            } else {
+                document.getElementById('auth-status').textContent = '❌ Not signed in';
+                document.getElementById('auth-status').className = 'status error';
+                document.getElementById('sign-in-btn').style.display = 'block';
+            }
+        });
+
+        window.signIn = async function() {
+            const email = prompt('Enter your email:');
+            const password = prompt('Enter your password:');
+            if (email && password) {
+                try {
+                    await signInWithEmailAndPassword(auth, email, password);
+                } catch (error) {
+                    alert(`Sign in failed: ${error.message}`);
+                }
+            }
+        };
+
+        window.addFakeGame = async function() {
+            if (!currentUser) return;
+
+            try {
+                const homeTeam = document.getElementById('home-team').value;
+                const awayTeam = document.getElementById('away-team').value;
+                const minutesFromNow = parseInt(document.getElementById('minutes-from-now').value);
+
+                if (!homeTeam || !awayTeam) {
+                    updateStatus('❌ Please enter both team names', 'error');
+                    return;
+                }
+
+                // Calculate current NFL week
+                const currentDate = new Date();
+                const seasonStart = new Date('2025-09-03');
+                const daysDiff = Math.floor((currentDate - seasonStart) / (1000 * 60 * 60 * 24));
+                const currentWeek = Math.max(1, Math.min(18, Math.floor(daysDiff / 7) + 1));
+                const currentSeason = 2025;
+
+                // Calculate game time
+                const gameTime = Math.floor((Date.now() + (minutesFromNow * 60 * 1000)) / 1000);
+
+                // Create fake game
+                const fakeGame = {
+                    gameID: `fake_${Date.now()}`,
+                    teamIDHome: homeTeam,
+                    teamIDAway: awayTeam,
+                    home: homeTeam,
+                    away: awayTeam,
+                    gameTime_epoch: gameTime,
+                    gameStatus: 'Scheduled',
+                    gameStatusCode: '0'
+                };
+
+                // Get existing schedule or create new one
+                const scheduleDocId = `${currentSeason}_week_${currentWeek}`;
+                const scheduleRef = doc(db, 'nfl_schedules', scheduleDocId);
+                const scheduleDoc = await getDoc(scheduleRef);
+
+                let games = [];
+                if (scheduleDoc.exists()) {
+                    games = scheduleDoc.data().games || [];
+                }
+
+                // Add the fake game
+                games.push(fakeGame);
+
+                // Save back to Firestore
+                await setDoc(scheduleRef, {
+                    season: currentSeason,
+                    week: currentWeek,
+                    games: games,
+                    lastUpdated: new Date()
+                });
+
+                updateStatus(`✅ Added fake game: ${awayTeam} @ ${homeTeam} in ${minutesFromNow} minutes`, 'success');
+                console.log('Fake game added:', fakeGame);
+
+            } catch (error) {
+                updateStatus(`❌ Error: ${error.message}`, 'error');
+                console.error('Error adding fake game:', error);
+            }
+        };
+
+        window.clearSchedule = async function() {
+            if (!currentUser) return;
+            if (!confirm('Are you sure you want to clear all games from the current week?')) return;
+
+            try {
+                // Calculate current NFL week
+                const currentDate = new Date();
+                const seasonStart = new Date('2025-09-03');
+                const daysDiff = Math.floor((currentDate - seasonStart) / (1000 * 60 * 60 * 24));
+                const currentWeek = Math.max(1, Math.min(18, Math.floor(daysDiff / 7) + 1));
+                const currentSeason = 2025;
+
+                const scheduleDocId = `${currentSeason}_week_${currentWeek}`;
+                const scheduleRef = doc(db, 'nfl_schedules', scheduleDocId);
+
+                await setDoc(scheduleRef, {
+                    season: currentSeason,
+                    week: currentWeek,
+                    games: [],
+                    lastUpdated: new Date()
+                });
+
+                updateStatus('✅ Cleared all games from current week', 'success');
+
+            } catch (error) {
+                updateStatus(`❌ Error: ${error.message}`, 'error');
+                console.error('Error clearing schedule:', error);
+            }
+        };
+    </script>
+</body>
+</html> 

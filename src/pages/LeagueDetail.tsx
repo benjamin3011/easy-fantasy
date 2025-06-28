@@ -1,11 +1,13 @@
 // pages/LeagueDetail.tsx
-import { useParams, useNavigate } from "react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useParams, useNavigate, Link } from "react-router";
+import { useEffect, useState } from "react";
 import {
   League,
-  getLeague,
+  listenToLeagueDetail,
   renameLeague,
   toggleLeagueVisibility,
+  updateLeagueCaptainSettings,
+  updateLeagueWeeklyTipsSettings
 } from "../utils/leagues";
 import { useAuth } from "../context/AuthContext";
 import { useModal } from "../hooks/useModal";
@@ -17,6 +19,10 @@ import Button from "../components/ui/button/Button";
 import Input from "../components/form/input/InputField";
 import Switch from "../components/form/switch/Switch";
 import toast from "react-hot-toast";
+import { calculateCurrentNFLWeek } from "../utils/nflWeekHelper";
+import Label from "../components/form/Label";
+import { ProphetLeaderboard } from "../components/gamecenter/ProphetLeaderboard";
+import { APP_CONFIG } from "../config/appConfig";
 
 export default function LeagueDetail() {
   const { id }   = useParams<{ id: string }>();
@@ -26,21 +32,60 @@ export default function LeagueDetail() {
 
   const [league, setLeague]   = useState<League | null>(null);
   const [loading, setLoading] = useState(true);
+  const [currentEnableCaptain, setCurrentEnableCaptain] = useState(false);
+  const [currentCaptainMultiplier, setCurrentCaptainMultiplier] = useState(1.5);
+  const [currentEnableWeeklyTips, setCurrentEnableWeeklyTips] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  /** load once on mount */
-  const load = useCallback(async () => {
-    if (!id) return;
+  const currentNflWeek = calculateCurrentNFLWeek();
+
+  useEffect(() => {
+    if (!id) {
+      setError("No league ID provided.");
+      setLoading(false);
+      setLeague(null);
+      return;
+    }
+
     setLoading(true);
-    const data = await getLeague(id);
-    setLeague(data);
-    setLoading(false);
-  }, [id]);
+    setError(null);
+    // console.log(`Setting up listener for league ID: ${id}`); // Optional: for debugging
 
-  useEffect(() => { void load(); }, [load]);
+    const unsubscribe = listenToLeagueDetail(
+      id,
+      (updatedLeague) => {
+        // console.log("Received league update:", updatedLeague); // Optional: for debugging
+        setLeague(updatedLeague);
+        if (updatedLeague) {
+          // Keep captain settings in sync with the latest league data
+          setCurrentEnableCaptain(updatedLeague.enableCaptainFeature ?? false);
+          setCurrentCaptainMultiplier(updatedLeague.captainPointMultiplier ?? 1.5);
+          setCurrentEnableWeeklyTips(updatedLeague.enableWeeklyTips ?? false);
+        } else {
+          // This case might occur if the league is deleted while the user is viewing
+          setError("League not found or has been deleted.");
+        }
+        setLoading(false);
+      },
+      (err) => {
+        // console.error(`Error listening to league ${id}:`, err); // Optional: for debugging
+        setError(err.message);
+        setLoading(false);
+        setLeague(null);
+      }
+    );
+
+    // Cleanup function
+    return () => {
+      // console.log(`Cleaning up listener for league ID: ${id}`); // Optional: for debugging
+      unsubscribe();
+    };
+  }, [id]); // Re-run effect if id changes
 
   if (!id)         return null;
-  if (loading)     return <p className="p-8">Loading…</p>;
-  if (!league)     return <p className="p-8">League not found.</p>;
+  if (loading)     return <p className="p-8">Loading league details…</p>;
+  if (error)       return <p className="p-8">Error: {error}</p>;
+  if (!league)     return <p className="p-8">League data could not be loaded or league not found.</p>;
 
   const isAdmin = user?.uid === league.adminUid;
 
@@ -49,7 +94,6 @@ export default function LeagueDetail() {
     if (!league) return;
     try {
       await renameLeague(league.id, newName.trim());
-      setLeague(lg => lg ? { ...lg, name: newName.trim() } : lg);
       toast.success("League renamed");
     } catch {
       toast.error("Rename failed");
@@ -61,7 +105,6 @@ export default function LeagueDetail() {
     if (!league) return;
     try {
       await toggleLeagueVisibility(league.id, checked);
-      setLeague(lg => lg ? { ...lg, isPublic: checked } : lg);
       toast.success(
         checked ? "League is now public" : "League is now private"
       );
@@ -70,95 +113,215 @@ export default function LeagueDetail() {
     }
   }
 
+  async function handleSaveCaptainSettings() {
+    if (!league || !id) return;
+    if (currentEnableCaptain && (currentCaptainMultiplier < 1 || currentCaptainMultiplier > 3)) {
+        toast.error("Captain point multiplier must be between 1 and 3.");
+        return;
+    }
+    try {
+      await updateLeagueCaptainSettings({
+        leagueId: id,
+        enableCaptainFeature: currentEnableCaptain,
+        captainPointMultiplier: currentCaptainMultiplier,
+      });
+      toast.success("Captain settings updated!");
+    } catch (err) {
+      toast.error("Failed to update captain settings.");
+      console.error("Error updating captain settings:", err);
+    }
+  }
+
+  async function handleSaveWeeklyTipsSettings() {
+    if (!league || !id) return;
+    try {
+      await updateLeagueWeeklyTipsSettings({
+        leagueId: id,
+        enableWeeklyTips: currentEnableWeeklyTips,
+      });
+      toast.success("Weekly tips settings updated!");
+    } catch (err) {
+      toast.error("Failed to update weekly tips settings.");
+      console.error("Error updating weekly tips settings:", err);
+    }
+  }
+
   return (
     <>
       <PageMeta title={`${league.name} | Easy Fantasy`} description="" />
 
-      {/* ← Back + Title */}
-      <div className="mb-6 flex items-center gap-4">
-        <Button size="sm" variant="outline" onClick={() => nav(-1)}>
-          ← Back
-        </Button>
-        <h1 className="text-2xl font-semibold">{league.name}</h1>
-        <span className="rounded bg-gray-100 px-2 py-1 text-xs font-mono tracking-wider">
-          Code {league.code}
-        </span>
-        {isAdmin && (
-          <button
-          onClick={openModal}
-          className="flex w-full items-center justify-center gap-2 rounded-full border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-700 shadow-theme-xs hover:bg-gray-50 hover:text-gray-800 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 lg:inline-flex lg:w-auto"
-        >
-          <svg
-            className="fill-current"
-            width="18"
-            height="18"
-            viewBox="0 0 18 18"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              fillRule="evenodd"
-              clipRule="evenodd"
-              d="M15.0911 2.78206C14.2125 1.90338 12.7878 1.90338 11.9092 2.78206L4.57524 10.116C4.26682 10.4244 4.0547 10.8158 3.96468 11.2426L3.31231 14.3352C3.25997 14.5833 3.33653 14.841 3.51583 15.0203C3.69512 15.1996 3.95286 15.2761 4.20096 15.2238L7.29355 14.5714C7.72031 14.4814 8.11172 14.2693 8.42013 13.9609L15.7541 6.62695C16.6327 5.74827 16.6327 4.32365 15.7541 3.44497L15.0911 2.78206ZM12.9698 3.84272C13.2627 3.54982 13.7376 3.54982 14.0305 3.84272L14.6934 4.50563C14.9863 4.79852 14.9863 5.2734 14.6934 5.56629L14.044 6.21573L12.3204 4.49215L12.9698 3.84272ZM11.2597 5.55281L5.6359 11.1766C5.53309 11.2794 5.46238 11.4099 5.43238 11.5522L5.01758 13.5185L6.98394 13.1037C7.1262 13.0737 7.25666 13.003 7.35947 12.9002L12.9833 7.27639L11.2597 5.55281Z"
-              fill=""
-            />
-          </svg>
-          Edit
-        </button>
-        )}
-      </div>
+      {/* Mobile-First Container */}
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl">
+          
+          {/* Mobile-First Header */}
+          <div className="pt-4 pb-6">
+            {/* Back Button */}
+            <div className="mb-4">
+              <Button size="sm" variant="outline" onClick={() => nav(-1)}>
+                ← Back
+              </Button>
+            </div>
 
-      <ComponentCard title="Standings">
-        <LeagueStandingsTable members={league.members} />
-      </ComponentCard>
+            {/* League Info */}
+            <div className="mb-6">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                {league.name}
+              </h1>
+              <div className="flex items-center gap-4 flex-wrap text-sm text-gray-600 dark:text-gray-400">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
+                  Code: {league.code}
+                </span>
+                <span>{league.members?.length ?? 0} member{league.members?.length !== 1 ? 's' : ''}</span>
+              </div>
+            </div>
 
-      {isAdmin && (
-        <Modal isOpen={isOpen} onClose={closeModal} className="max-w-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">League Settings</h2>
-
-          {/* Rename */}
-          <div className="space-y-2 mb-6">
-            <h4 className="font-medium">Rename League</h4>
-            <RenameForm current={league.name} onSave={handleRename} />
-          </div>
-
-          {/* Privacy */}
-          <div className="space-y-2 mb-6">
-            <h4 className="font-medium">Privacy</h4>
-            <div className="flex items-center gap-2">
-              <Switch label={league.isPublic
-                  ? "Public (anyone can discover)"
-                  : "Private (invite code only)"}
-                defaultChecked={league.isPublic}
-                onChange={handleTogglePrivacy}
-              />
+            {/* Mobile-First Action Buttons */}
+            <div className="space-y-3 sm:space-y-0 sm:flex sm:flex-wrap sm:gap-3">
+              <Link to={`/leagues/${league.id}/lineup/${currentNflWeek}`}>
+                <Button size="md" variant="primary" className="w-full sm:w-auto">
+                  ⚡ Set Lineup (Week {currentNflWeek})
+                </Button>
+              </Link>
               
+              <Link to="/tips">
+                <Button size="md" variant="outline" className="w-full sm:w-auto">
+                  🎯 Make Game Tips
+                </Button>
+              </Link>
+
+              {isAdmin && (
+                <Button
+                  onClick={openModal}
+                  size="md"
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Edit League
+                </Button>
+              )}
             </div>
           </div>
 
-          {/* Invite Code */}
-          <div className="space-y-2">
-            <h4 className="font-medium">Invite Code</h4>
-            <p className="font-mono text-lg">{league.code}</p>
-            <p className="text-sm text-gray-500">
-              Share this or send&nbsp;
-              <a
-                href={`${window.location.origin}/leagues/${league.id}`}
-                target="_blank"
-                rel="noreferrer"
-                className="underline"
-              >
-                this link
-              </a>.
-            </p>
+          {/* League Content */}
+          <div className="space-y-6">
+            {/* Standings Section */}
+            <ComponentCard title="League Standings">
+              <LeagueStandingsTable members={league.members} />
+            </ComponentCard>
+
+            {/* Prophet Leaderboard (if weekly tips enabled) */}
+            {league.enableWeeklyTips && (
+              <ComponentCard title="Prophet Leaderboard">
+                <ProphetLeaderboard 
+                  leagueId={league.id}
+                  season={parseInt(APP_CONFIG.CURRENT_NFL_SEASON)}
+                />
+              </ComponentCard>
+            )}
           </div>
-        </Modal>
-      )}
+        </div>
+      </div>
+
+      {/* Admin Modal */}
+      <Modal isOpen={isOpen} onClose={closeModal} className="max-w-2xl p-6">
+        <div className="space-y-6">
+          {/* Modal Title */}
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Edit League</h2>
+          </div>
+
+          {/* Rename Section */}
+          <div>
+            <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">League Name</h4>
+            <RenameForm current={league.name} onSave={handleRename} />
+          </div>
+
+          {/* Privacy Section */}
+          <div>
+            <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Privacy Settings</h4>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-700 dark:text-gray-300">Public League</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Allow others to find and join this league</p>
+              </div>
+              <Switch
+                label=""
+                defaultChecked={league.isPublic ?? false}
+                onChange={handleTogglePrivacy}
+              />
+            </div>
+          </div>
+
+          {/* Captain Settings */}
+          <div>
+            <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Captain Feature</h4>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-700 dark:text-gray-300">Enable Captain</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Allow players to select a captain for bonus points</p>
+                </div>
+                                 <Switch
+                   label=""
+                   defaultChecked={currentEnableCaptain}
+                   onChange={setCurrentEnableCaptain}
+                 />
+              </div>
+              
+              {currentEnableCaptain && (
+                <div>
+                  <Label htmlFor="multiplier">Captain Point Multiplier</Label>
+                  <Input
+                    id="multiplier"
+                    type="number"
+                    min="1"
+                    max="3"
+                    step="0.1"
+                    value={currentCaptainMultiplier}
+                    onChange={(e) => setCurrentCaptainMultiplier(parseFloat(e.target.value))}
+                    className="mt-1"
+                  />
+                </div>
+              )}
+              
+              <Button onClick={handleSaveCaptainSettings} size="sm" variant="outline">
+                Save Captain Settings
+              </Button>
+            </div>
+          </div>
+
+          {/* Weekly Tips Settings */}
+          <div>
+            <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">Weekly Tips</h4>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-700 dark:text-gray-300">Enable Weekly Tips</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Allow members to make game predictions</p>
+                </div>
+                                 <Switch
+                   label=""
+                   defaultChecked={currentEnableWeeklyTips}
+                   onChange={setCurrentEnableWeeklyTips}
+                 />
+              </div>
+              
+              <Button onClick={handleSaveWeeklyTipsSettings} size="sm" variant="outline">
+                Save Tips Settings
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }
 
-/** inline form for renaming without reloading */
+// Rename Form Component
 function RenameForm({
   current,
   onSave,
@@ -166,26 +329,35 @@ function RenameForm({
   current: string;
   onSave: (newName: string) => Promise<void>;
 }) {
-  const [name, setName]     = useState(current);
+  const [name, setName] = useState(current);
   const [saving, setSaving] = useState(false);
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || name.trim() === current) return;
+    
+    setSaving(true);
+    try {
+      await onSave(name.trim());
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <form
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setSaving(true);
-        await onSave(name);
-        setSaving(false);
-      }}
-      className="flex gap-2"
-    >
+    <form onSubmit={handleSubmit} className="flex gap-2">
       <Input
         value={name}
         onChange={(e) => setName(e.target.value)}
-        required
+        className="flex-1"
+        placeholder="League name"
       />
-      <Button size="sm" type="submit" disabled={saving || name === current}>
-        {saving ? "Saving…" : "Save"}
+      <Button
+        type="submit"
+        size="sm"
+        disabled={saving || !name.trim() || name.trim() === current}
+      >
+        {saving ? "Saving..." : "Save"}
       </Button>
     </form>
   );

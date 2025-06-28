@@ -78,10 +78,10 @@ export default function PublicLeaguesList() {
       let message = "Could not join league. Please try again.";
       if (isFunctionsError(err)) {
         switch (err.code) {
-            case 'unauthenticated': message = "Authentication error. Please log in again."; break;
-            case 'not-found': message = "League not found."; break;
-            case 'already-exists': message = "You are already a member of this league."; break;
-            case 'invalid-argument': message = `Invalid input: ${err.message}`; break;
+            case 'functions/unauthenticated': message = "Authentication error. Please log in again."; break;
+            case 'functions/not-found': message = "League not found."; break;
+            case 'functions/already-exists': message = "You are already a member of this league."; break;
+            case 'functions/invalid-argument': message = `Invalid input: ${err.message}`; break;
             default: message = `An unexpected error occurred (${err.code}): ${err.message}`; break;
         }
       } else if (err instanceof Error) { message = err.message; }
@@ -91,56 +91,124 @@ export default function PublicLeaguesList() {
     }
   };
 
-  // Render loading state for initial load
-  if (loading) return <p className="p-4 text-center text-gray-500">Loading leagues...</p>;
-
-  // Render error state
-  if (error) return <p className="p-4 text-center text-red-600 dark:text-red-400">{error}</p>;
-
-  // Render message if logged in but no leagues found
-  if (user && leagues.length === 0) {
-    return <p className="p-4 text-center text-gray-500">No public leagues found.</p>;
-  }
-
-  // Don't render anything if logged out and no leagues (or initial state before loading finishes)
+  // Don't render anything if logged out
   if (!user) return null;
 
-
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200
-                    bg-white dark:border-white/[0.05] dark:bg-white/[0.03]">
-      {/* header */}
-      <div className="px-4 pt-4 sm:px-6">
-        <div className="mb-4 flex flex-col gap-2
-                        sm:flex-row sm:items-center sm:justify-between">
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 shadow-sm">
+      {/* Mobile-First Header */}
+      <div className="px-4 pt-6 pb-4 sm:px-6">
+        <div>
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white">
             Public Leagues
           </h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+            Join existing leagues
+          </p>
         </div>
       </div>
-      {leagues.map(lg => (
-         <div key={lg.id} className="flex justify-between items-center px-4 p-4 sm:px-6 border-t">
-            <div>
-              <p className="font-medium">{lg.name}</p>
-              <p className="text-xs text-gray-500">{lg.members?.length ?? 0} members</p>
-            </div>
-            <Button
-                onClick={() => handleJoin(lg.id)}
-                disabled={joiningLeagueId === lg.id}
-              size="sm"
-              variant="outline"
-              startIcon={<EnterIcon className="size-5" />}
+
+      {/* Loading State */}
+      {loading && (
+        <div className="px-4 py-12 text-center sm:px-6">
+          <div className="inline-flex items-center">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-brand-500 mr-3"></div>
+            <span className="text-gray-600 dark:text-gray-400">Loading public leagues...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Error State */}
+      {!loading && error && (
+        <div className="px-4 py-12 text-center sm:px-6">
+          <div className="text-red-600 dark:text-red-400">
+            <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+            <p className="text-sm mb-4">{error}</p>
+            <Button size="sm" variant="outline" onClick={() => loadLeagues(false)}>
+              Try Again
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!loading && !error && leagues.length === 0 && (
+        <div className="px-4 py-12 text-center sm:px-6">
+          <div className="text-gray-500 dark:text-gray-400">
+            <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
+            </svg>
+            <p className="text-sm">No public leagues found</p>
+          </div>
+        </div>
+      )}
+
+      {/* League Cards */}
+      {!loading && !error && leagues.length > 0 && (
+        <div>
+          {leagues.map((league, index) => (
+            <div 
+              key={league.id} 
+              className={`px-4 py-4 sm:px-6 ${index > 0 ? 'border-t border-gray-200 dark:border-gray-700' : ''}`}
             >
-              {joiningLeagueId === lg.id ? "Joining..." : "Join"}
-            </Button>
-         </div>
-      ))}
-      {/* Show "Load More" button only if there is potentially a next page */}
-      {hasNextPage && (
-        <div className="text-center mt-4">
-            <Button onClick={() => loadLeagues(true)} disabled={loadingMore}>
-                {loadingMore ? "Loading..." : "Load More"}
-            </Button>
+              <div className="flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-lg font-semibold text-gray-900 dark:text-white truncate">
+                    {league.name}
+                  </h4>
+                  <div className="flex items-center mt-2 text-sm text-gray-600 dark:text-gray-400">
+                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                    </svg>
+                    {league.members?.length ?? 0} member{league.members?.length !== 1 ? "s" : ""}
+                  </div>
+                </div>
+                <div className="ml-4 flex-shrink-0">
+                  <Button
+                    onClick={() => handleJoin(league.id)}
+                    disabled={joiningLeagueId === league.id}
+                    size="sm"
+                    variant="outline"
+                    startIcon={joiningLeagueId === league.id ? undefined : <EnterIcon className="w-4 h-4" />}
+                    className="min-w-[80px]"
+                  >
+                    {joiningLeagueId === league.id ? (
+                      <div className="flex items-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Joining...
+                      </div>
+                    ) : (
+                      "Join"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Load More Button */}
+          {hasNextPage && (
+            <div className="px-4 py-6 text-center border-t border-gray-200 dark:border-gray-700 sm:px-6">
+              <Button 
+                onClick={() => loadLeagues(true)} 
+                disabled={loadingMore}
+                variant="outline"
+                size="md"
+                className="w-full sm:w-auto"
+              >
+                {loadingMore ? (
+                  <div className="flex items-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-500 mr-2"></div>
+                    Loading...
+                  </div>
+                ) : (
+                  "Load More"
+                )}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

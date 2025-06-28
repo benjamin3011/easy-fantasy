@@ -3,6 +3,8 @@ import { Outlet } from "react-router";
 import AppHeader from "./AppHeader";
 import Backdrop from "./Backdrop";
 import AppSidebar from "./AppSidebar";
+import MobileBottomTabBar from "../components/layout/MobileBottomTabBar";
+import DebugInfo from "../components/layout/DebugInfo";
 
 const LayoutContent: React.FC = () => {
   const { isExpanded, isHovered, isMobileOpen } = useSidebar();
@@ -19,10 +21,16 @@ const LayoutContent: React.FC = () => {
         } ${isMobileOpen ? "ml-0" : ""}`}
       >
         <AppHeader />
-        <div className="p-4 mx-auto max-w-(--breakpoint-2xl) md:p-6">
+        <div className="p-4 mx-auto max-w-(--breakpoint-2xl) md:p-6 pb-24 md:pb-6">
           <Outlet />
         </div>
       </div>
+      
+      {/* Mobile Bottom Tab Bar */}
+      <MobileBottomTabBar />
+      
+      {/* Debug Info (triple-click to show) */}
+      <DebugInfo />
     </div>
   );
 };

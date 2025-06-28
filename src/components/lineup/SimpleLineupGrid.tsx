@@ -1,0 +1,145 @@
+import React, { useState } from 'react';
+import { useLineupStore } from '../../store/lineupStore';
+import { POSITIONS_CONFIG } from '../../config/positions';
+import { SelectableEntity } from '../../types/lineup';
+import SimpleLineupSlot from './SimpleLineupSlot';
+import SimpleEntitySelectionPanel from './SimpleEntitySelectionPanel';
+import SimpleCaptainSelector from './SimpleCaptainSelector';
+import SimpleLineupSummary from './SimpleLineupSummary';
+import SimpleQuickActions from './SimpleQuickActions';
+import LoadingOverlay from '../ui/LoadingOverlay';
+import StatsModal from '../modals/StatsModal';
+import { APP_CONFIG } from '../../config/appConfig';
+import { calculateCurrentNFLWeek } from '../../utils/nflWeekHelper';
+
+interface SimpleLineupGridProps {
+  enableCaptainFeature: boolean;
+  captainPointMultiplier: number;
+}
+
+const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({ enableCaptainFeature, captainPointMultiplier }) => {
+  const { lineup, isLoadingLineup, currentWeek, currentSeason } = useLineupStore();
+
+  // Stats modal state
+  const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+  const [selectedEntityForStats, setSelectedEntityForStats] = useState<SelectableEntity | null>(null);
+
+  // Show loading overlay while lineup is being loaded
+  if (isLoadingLineup) {
+    return <LoadingOverlay text="Loading your lineup..." fullScreen={false} />;
+  }
+
+  // Stats modal handlers
+  const handleViewStats = (entity: SelectableEntity) => {
+    setSelectedEntityForStats(entity);
+    setIsStatsModalOpen(true);
+  };
+
+  const handleCloseStatsModal = () => {
+    setIsStatsModalOpen(false);
+    setSelectedEntityForStats(null);
+  };
+
+  // Calculate completion stats
+  const totalSlots = POSITIONS_CONFIG.length;
+  const filledSlots = Object.values(lineup).filter(entity => entity !== undefined).length;
+  const completionPercentage = Math.round((filledSlots / totalSlots) * 100);
+
+  // Separate player and team positions
+  const playerPositions = POSITIONS_CONFIG.filter(pos => pos.type === 'player');
+  const teamPositions = POSITIONS_CONFIG.filter(pos => pos.type === 'team');
+
+  // Use week and season from store (set by LineupPage based on user selection)
+  const weekForActions = currentWeek || calculateCurrentNFLWeek();
+  const seasonForActions = currentSeason || parseInt(APP_CONFIG.CURRENT_NFL_SEASON, 10);
+
+  return (
+    <div className="space-y-8">
+      {/* Progress Section */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            {filledSlots} of {totalSlots} selected
+          </div>
+          <div className="text-lg font-semibold text-brand-600 dark:text-brand-400">
+            {completionPercentage}% Complete
+          </div>
+        </div>
+        
+        {/* Progress Bar */}
+        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+          <div 
+            className="bg-brand-500 h-2 rounded-full transition-all duration-300"
+            style={{ width: `${completionPercentage}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Left Column - Lineup Slots */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Quick Actions */}
+          <SimpleQuickActions 
+            currentWeek={weekForActions}
+            currentSeason={seasonForActions}
+          />
+
+          {/* Unified Lineup Section */}
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Lineup (8 positions)
+            </h3>
+            <div className="space-y-6">
+              {/* Player Positions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {playerPositions.map((position) => (
+                  <SimpleLineupSlot
+                    key={position.key}
+                    positionKey={position.key}
+                    onViewStats={handleViewStats}
+                  />
+                ))}
+              </div>
+
+              {/* Team Positions */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {teamPositions.map((position) => (
+                  <SimpleLineupSlot
+                    key={position.key}
+                    positionKey={position.key}
+                    onViewStats={handleViewStats}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column - Captain Selector & Summary */}
+        <div className="lg:col-span-1 space-y-6">
+          <SimpleLineupSummary 
+            enableCaptainFeature={enableCaptainFeature}
+            captainPointMultiplier={captainPointMultiplier}
+          />
+          {enableCaptainFeature && (
+            <SimpleCaptainSelector captainPointMultiplier={captainPointMultiplier} />
+          )}
+        </div>
+      </div>
+
+      {/* Entity Selection Panel */}
+      <SimpleEntitySelectionPanel />
+
+      {/* Stats Modal */}
+      {isStatsModalOpen && (
+        <StatsModal
+          isOpen={isStatsModalOpen}
+          onClose={handleCloseStatsModal}
+          entity={selectedEntityForStats}
+        />
+      )}
+    </div>
+  );
+};
+
+export default SimpleLineupGrid; 

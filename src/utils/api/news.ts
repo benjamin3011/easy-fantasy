@@ -10,6 +10,7 @@ interface RawNews {
   updated? : string;
   published?: string;
   source?  : string;
+  playerIDs?: string[];
 }
 
 /* ---------- DTO used by the UI ----------------------------------- */
@@ -19,6 +20,7 @@ export interface NewsItem {
   link     : string;
   published: string;
   source   : string;
+  playerIDs?: string[];
 }
 
 /* ---------- friendly-name map ------------------------------------ */
@@ -65,5 +67,6 @@ export async function fetchNews(): Promise<NewsItem[]> {
     link : it.link  ?? "#",
     published: it.updated ?? it.published ?? new Date().toISOString(),
     source   : prettySource(it.link, it.source ?? "Tank01"),
+    playerIDs: it.playerIDs ?? [],
   }));
 }

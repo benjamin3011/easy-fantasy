@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Notifications</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 10px 0;
+            display: block;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+        .success { background: #dcfce7; color: #166534; }
+        .error { background: #fef2f2; color: #dc2626; }
+        .warning { background: #fefce8; color: #ca8a04; }
+    </style>
+</head>
+<body>
+    <h1>🔔 Notification Testing</h1>
+    
+    <div id="status" class="status warning">
+        Click "Request Permission" to enable notifications
+    </div>
+    
+    <button onclick="requestPermission()">Request Permission</button>
+    <button onclick="testBasicNotification()">Test Basic Notification</button>
+    <button onclick="testLineupNotification()">Test Lineup Deadline Alert</button>
+    <button onclick="testServiceWorkerNotification()">Test Service Worker Notification (with actions)</button>
+    <button onclick="checkPermissionStatus()">Check Permission Status</button>
+    
+    <h2>📋 Test Results</h2>
+    <div id="results"></div>
+
+    <script>
+        function updateStatus(message, type = 'warning') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+        }
+
+        function addResult(message) {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            div.style.padding = '5px 0';
+            results.appendChild(div);
+        }
+
+        async function requestPermission() {
+            try {
+                if (!('Notification' in window)) {
+                    updateStatus('This browser does not support notifications', 'error');
+                    addResult('❌ Browser does not support notifications');
+                    return;
+                }
+
+                const permission = await Notification.requestPermission();
+                
+                if (permission === 'granted') {
+                    updateStatus('✅ Notifications enabled!', 'success');
+                    addResult('✅ Permission granted');
+                } else if (permission === 'denied') {
+                    updateStatus('❌ Notifications denied', 'error');
+                    addResult('❌ Permission denied');
+                } else {
+                    updateStatus('⏳ Permission request dismissed', 'warning');
+                    addResult('⏳ Permission dismissed');
+                }
+            } catch (error) {
+                updateStatus('Error requesting permission', 'error');
+                addResult(`❌ Error: ${error.message}`);
+            }
+        }
+
+        function testBasicNotification() {
+            if (Notification.permission !== 'granted') {
+                addResult('❌ Permission not granted. Click "Request Permission" first.');
+                return;
+            }
+
+            try {
+                const notification = new Notification('🎯 Test Notification', {
+                    body: 'This is a basic test notification from Easy Fantasy!',
+                    icon: '/icons/favicon-96x96.png',
+                    badge: '/icons/favicon-96x96.png',
+                    tag: 'test-notification'
+                });
+
+                notification.onclick = function() {
+                    addResult('✅ Notification clicked!');
+                    notification.close();
+                };
+
+                addResult('✅ Basic notification sent');
+            } catch (error) {
+                addResult(`❌ Error sending notification: ${error.message}`);
+            }
+        }
+
+        function testLineupNotification() {
+            if (Notification.permission !== 'granted') {
+                addResult('❌ Permission not granted. Click "Request Permission" first.');
+                return;
+            }
+
+            try {
+                // Simple notification without actions (actions only work with Service Worker)
+                const notification = new Notification('⏰ Lineup Deadline Alert', {
+                    body: 'BAL vs KC starts in 30 minutes! You have 3 positions to fill in My League.',
+                    icon: '/icons/favicon-96x96.png',
+                    badge: '/icons/favicon-96x96.png',
+                    tag: 'lineup-deadline',
+                    requireInteraction: true // Keeps notification visible until user interacts
+                });
+
+                notification.onclick = function() {
+                    addResult('✅ Lineup notification clicked - would navigate to lineup page');
+                    // In real app: window.open('/lineup?league=123&week=1', '_blank');
+                    notification.close();
+                };
+
+                addResult('✅ Lineup deadline notification sent (without action buttons)');
+                addResult('ℹ️ Note: Action buttons only work with Service Worker notifications');
+            } catch (error) {
+                addResult(`❌ Error sending lineup notification: ${error.message}`);
+            }
+        }
+
+        async function testServiceWorkerNotification() {
+            if (Notification.permission !== 'granted') {
+                addResult('❌ Permission not granted. Click "Request Permission" first.');
+                return;
+            }
+
+            try {
+                // Register the test service worker
+                if ('serviceWorker' in navigator) {
+                    const registration = await navigator.serviceWorker.register('/test-sw.js');
+                    addResult('✅ Test Service Worker registered');
+                    
+                    // Wait for the service worker to be ready
+                    await navigator.serviceWorker.ready;
+                    addResult('✅ Service Worker is ready');
+                    
+                    // Send notification through service worker
+                    await registration.showNotification('⏰ Lineup Deadline Alert (SW)', {
+                        body: 'BAL vs KC starts in 30 minutes! You have 3 positions to fill in My League.',
+                        icon: '/icons/favicon-96x96.png',
+                        badge: '/icons/favicon-96x96.png',
+                        tag: 'lineup-deadline-sw',
+                        requireInteraction: true,
+                        actions: [
+                            {
+                                action: 'set-lineup',
+                                title: '⚡ Set Lineup'
+                            },
+                            {
+                                action: 'dismiss',
+                                title: '❌ Dismiss'
+                            }
+                        ],
+                        data: {
+                            type: 'lineup_deadline',
+                            leagueId: 'test-league',
+                            gameId: 'test-game',
+                            week: '1'
+                        }
+                    });
+                    
+                    addResult('✅ Service Worker notification sent with action buttons!');
+                    addResult('ℹ️ Try clicking the notification or the action buttons');
+                } else {
+                    addResult('❌ Service Worker not supported in this browser');
+                }
+            } catch (error) {
+                addResult(`❌ Error with Service Worker notification: ${error.message}`);
+            }
+        }
+
+        function checkPermissionStatus() {
+            if (!('Notification' in window)) {
+                addResult('❌ Notifications not supported');
+                return;
+            }
+
+            const permission = Notification.permission;
+            addResult(`📊 Current permission: ${permission}`);
+            
+            if (permission === 'granted') {
+                updateStatus('✅ Notifications are enabled', 'success');
+            } else if (permission === 'denied') {
+                updateStatus('❌ Notifications are blocked', 'error');
+            } else {
+                updateStatus('⏳ Permission not requested yet', 'warning');
+            }
+        }
+
+        // Check initial status
+        window.onload = function() {
+            checkPermissionStatus();
+        };
+    </script>
+</body>
+</html> 

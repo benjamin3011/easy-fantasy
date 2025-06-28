@@ -5,13 +5,68 @@ import svgr from 'vite-plugin-svgr'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // Add base configuration for proper asset loading
+  base: './',
   server: {
-    host: true,
+    host: '0.0.0.0', // Changed from true to explicit IP for better ngrok compatibility
     port: 4173,
-    https: {
-      key: './localhost+2-key.pem',
-      cert: './localhost+2.pem'
-    }
+    // Allow all hosts for ngrok and other tunnel services
+    allowedHosts: true,
+    // Add headers for ngrok compatibility
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    },
+    // Remove HTTPS when using ngrok - ngrok provides the HTTPS layer
+    // https: {
+    //   key: './192.168.178.178+3-key.pem',
+    //   cert: './192.168.178.178+3.pem'
+    // }
+  },
+  // Add build configuration for better compatibility
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: true,
+    // Optimize chunking strategy for better performance
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Separate vendor chunks for better caching
+          'react-vendor': ['react', 'react-dom', 'react-router'],
+          'firebase-vendor': [
+            'firebase/app',
+            'firebase/auth', 
+            'firebase/firestore',
+            'firebase/functions',
+            'firebase/messaging'
+          ],
+          'ui-vendor': [
+            'react-hot-toast',
+            'react-ios-pwa-prompt'
+          ]
+        }
+      }
+    },
+    // Increase chunk size warning limit since we're optimizing
+    chunkSizeWarningLimit: 1000,
+    // Optimize for production
+    minify: 'esbuild',
+    target: 'es2020'
+  },
+  // Optimize dependencies
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom', 
+      'react-router',
+      'firebase/app',
+      'firebase/auth',
+      'firebase/firestore',
+      'firebase/functions',
+      'firebase/messaging'
+    ]
   },
   plugins: [
     react(),
@@ -22,7 +77,12 @@ export default defineConfig({
       registerType: 'autoUpdate',
       devOptions: {
         enabled: true,    // ← turn it on in dev so you can inspect the manifest tag
+        type: 'module',   // Add module type for better compatibility
+        navigateFallback: 'index.html'
       },
+      // Add strategies for better ngrok compatibility
+      strategies: 'generateSW',
+      injectRegister: 'auto',
       includeAssets: [
         'favicon.svg',
         'robots.txt',
@@ -37,10 +97,12 @@ export default defineConfig({
       manifest: {
         name: 'Easy Fantasy',
         short_name: 'Easy Fantasy',
-        start_url: '.',
+        start_url: './',  // Changed to relative path
+        scope: './',      // Add scope for PWA
         display: 'standalone',
         background_color: '#ffffff',
         theme_color: '#0B345A',
+        orientation: 'portrait-primary',
         icons: [
           {
             src: '/icons/manifest-icon-192.maskable.png',
@@ -64,6 +126,9 @@ export default defineConfig({
         // force a new SW to take control
         skipWaiting: true,
         clientsClaim: true,
+        // Add navigation fallback for SPA routing
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/_/, /\/[^/?]+\.[^/]+$/],
         runtimeCaching: [
           {
             urlPattern: /\.(?:png|jpg|jpeg|svg|css|js)$/,
