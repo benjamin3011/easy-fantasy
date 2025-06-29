@@ -9,20 +9,31 @@ import SimpleLineupSummary from './SimpleLineupSummary';
 import SimpleQuickActions from './SimpleQuickActions';
 import LoadingOverlay from '../ui/LoadingOverlay';
 import StatsModal from '../modals/StatsModal';
+import StrategyPanel from './StrategyPanel';
 import { APP_CONFIG } from '../../config/appConfig';
 import { calculateCurrentNFLWeek } from '../../utils/nflWeekHelper';
 
 interface SimpleLineupGridProps {
   enableCaptainFeature: boolean;
   captainPointMultiplier: number;
+  userId?: string;
+  leagueId?: string;
 }
 
-const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({ enableCaptainFeature, captainPointMultiplier }) => {
+const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({ 
+  enableCaptainFeature, 
+  captainPointMultiplier,
+  userId,
+  leagueId 
+}) => {
   const { lineup, isLoadingLineup, currentWeek, currentSeason } = useLineupStore();
 
   // Stats modal state
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [selectedEntityForStats, setSelectedEntityForStats] = useState<SelectableEntity | null>(null);
+
+  // Strategy panel state
+  const [isStrategyPanelOpen, setIsStrategyPanelOpen] = useState(false);
 
   // Show loading overlay while lineup is being loaded
   if (isLoadingLineup) {
@@ -38,6 +49,15 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({ enableCaptainFeatur
   const handleCloseStatsModal = () => {
     setIsStatsModalOpen(false);
     setSelectedEntityForStats(null);
+  };
+
+  // Strategy panel handlers
+  const handleOpenStrategyPanel = () => {
+    setIsStrategyPanelOpen(true);
+  };
+
+  const handleCloseStrategyPanel = () => {
+    setIsStrategyPanelOpen(false);
   };
 
   // Calculate completion stats
@@ -61,8 +81,16 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({ enableCaptainFeatur
           <div className="text-sm text-gray-600 dark:text-gray-400">
             {filledSlots} of {totalSlots} selected
           </div>
-          <div className="text-lg font-semibold text-brand-600 dark:text-brand-400">
-            {completionPercentage}% Complete
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleOpenStrategyPanel}
+              className="text-sm px-3 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+            >
+              📊 Strategy
+            </button>
+            <div className="text-lg font-semibold text-brand-600 dark:text-brand-400">
+              {completionPercentage}% Complete
+            </div>
           </div>
         </div>
         
@@ -136,6 +164,18 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({ enableCaptainFeatur
           isOpen={isStatsModalOpen}
           onClose={handleCloseStatsModal}
           entity={selectedEntityForStats}
+        />
+      )}
+
+      {/* Strategy Panel */}
+      {isStrategyPanelOpen && (
+        <StrategyPanel
+          isOpen={isStrategyPanelOpen}
+          onClose={handleCloseStrategyPanel}
+          userId={userId}
+          leagueId={leagueId}
+          currentWeek={currentWeek ?? undefined}
+          currentSeason={currentSeason ?? undefined}
         />
       )}
     </div>

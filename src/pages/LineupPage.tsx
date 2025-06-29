@@ -310,6 +310,8 @@ export default function LineupPage() {
         <SimpleLineupGrid 
           enableCaptainFeature={selectedLeague?.enableCaptainFeature ?? false}
           captainPointMultiplier={selectedLeague?.captainPointMultiplier ?? 1.5}
+          userId={userId}
+          leagueId={resolvedLeagueId ?? undefined}
         />
       </div>
     </>
