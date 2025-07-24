@@ -198,7 +198,7 @@ const SimpleLineupSummary: React.FC<SimpleLineupSummaryProps> = ({ enableCaptain
               </svg>
               <div className="text-sm text-blue-800 dark:text-blue-200">
                 <p className="font-medium">Select Your Captain</p>
-                <p>Choose a player (not a team) as captain to maximize your points potential</p>
+                <p>Choose a player as captain to maximize your points potential</p>
               </div>
             </div>
           )}

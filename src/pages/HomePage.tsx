@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import PageMeta from "../components/common/PageMeta";
 import { useAuth } from '../context/AuthContext';
 import { listenToUserLeagues, League } from '../utils/leagues';
@@ -13,6 +13,7 @@ import PullToRefresh from '../components/ui/PullToRefresh';
 import LineupStatusKPI from '../components/dashboard/LineupStatusKPI';
 import WeeklyGamesSchedule from '../components/dashboard/WeeklyGamesSchedule';
 import NewsCard from "../components/dashboard/Newscard";
+import LiveScoringWidget from '../components/dashboard/LiveScoringWidget';
 
 interface QuickAction {
   title: string;
@@ -190,89 +191,118 @@ export default function HomePage() {
       
       <PullToRefresh onRefresh={handleRefresh}>
         {error && (
-          <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
             <p className="text-red-700 dark:text-red-300 text-sm">{error}</p>
           </div>
         )}
 
-      {/* Mobile-First Layout */}
-      <div className="space-y-4">
-        
-        {/* Hero Status Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Week {currentNflWeek} Status
-            </h2>
-            <span className="text-sm text-gray-500 dark:text-gray-400">
-              {leagues.length} league{leagues.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-          
-          <LineupStatusKPI
-            lineupsSet={lineupStatus.lineupsSet}
-            lineupsComplete={lineupStatus.lineupsComplete}
-            totalLeagues={lineupStatus.totalLeagues}
-            isLoading={lineupStatus.isLoading}
-            currentWeek={currentNflWeek}
-            nextLockTime={nextGameTime}
-          />
-        </div>
-
-        {/* Quick Actions */}
-        {quickActions.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
-              Quick Actions
-            </h3>
-            <div className="space-y-2">
-              {quickActions.map((action, index) => (
-                <Link
-                  key={index}
-                  to={action.path}
-                  className={`flex items-center p-3 rounded-lg transition-colors ${
-                    action.urgent 
-                      ? "bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/30"
-                      : "bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600"
-                  }`}
-                >
-                  <span className="text-2xl mr-3">{action.icon}</span>
-                  <div className="flex-1">
-                    <div className={`font-medium ${action.urgent ? "text-orange-900 dark:text-orange-100" : "text-gray-900 dark:text-white"}`}>
-                      {action.title}
-                    </div>
-                    <div className={`text-sm ${action.urgent ? "text-orange-700 dark:text-orange-300" : "text-gray-500 dark:text-gray-400"}`}>
-                      {action.description}
-                    </div>
-                  </div>
-                  <div className="text-gray-400 dark:text-gray-500">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </Link>
-              ))}
+        <div className="container mx-auto px-4 py-6">
+          {/* Modern Header - Matching LineupPage */}
+          <div className="mb-6">
+            <div className="flex flex-col gap-3">
+              {/* Title and Season Info */}
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+                  Easy Fantasy
+                </h1>
+                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-0.5">
+                  Week {currentNflWeek} • {APP_CONFIG.CURRENT_NFL_SEASON} Season • {leagues.length} league{leagues.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+              
+              {/* Progress Bar */}
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                <div 
+                  className="bg-brand-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${(currentNflWeek / 18) * 100}%` }}
+                />
+              </div>
             </div>
           </div>
-        )}
 
-        {/* This Week's Games */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
-            This Week's Games
-          </h3>
-          <WeeklyGamesSchedule currentNflWeek={currentNflWeek} />
+          {/* Main Content Grid - More Efficient Layout */}
+          <div className="space-y-6">
+            
+            {/* Top Section - Status & Quick Actions Combined */}
+            <div className="grid gap-4 md:grid-cols-2">
+              
+              {/* Lineup Status */}
+              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                  Week {currentNflWeek} Status
+                </h2>
+                <LineupStatusKPI
+                  lineupsSet={lineupStatus.lineupsSet}
+                  lineupsComplete={lineupStatus.lineupsComplete}
+                  totalLeagues={lineupStatus.totalLeagues}
+                  isLoading={lineupStatus.isLoading}
+                  currentWeek={currentNflWeek}
+                  nextLockTime={nextGameTime}
+                />
+              </div>
+
+              {/* Quick Actions */}
+              {quickActions.length > 0 && (
+                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                    Quick Actions
+                  </h2>
+                  <div className="space-y-3">
+                    {quickActions.map((action, index) => (
+                      <Link
+                        key={index}
+                        to={action.path}
+                        className={`flex items-center p-3 border rounded-lg transition-all duration-200 hover:shadow-md ${
+                          action.urgent 
+                            ? "border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/30"
+                            : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        }`}
+                      >
+                        <span className="text-xl mr-3">{action.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className={`font-medium ${action.urgent ? "text-orange-900 dark:text-orange-100" : "text-gray-900 dark:text-white"}`}>
+                            {action.title}
+                          </div>
+                          <div className={`text-sm ${action.urgent ? "text-orange-700 dark:text-orange-300" : "text-gray-500 dark:text-gray-400"}`}>
+                            {action.description}
+                          </div>
+                        </div>
+                        <div className="text-gray-400 dark:text-gray-500">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Live Scoring - Full Width */}
+            <LiveScoringWidget />
+
+            {/* Bottom Section - Games & News */}
+            <div className="grid gap-4 md:grid-cols-2">
+              
+              {/* This Week's Games */}
+              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                  This Week's Games
+                </h2>
+                <WeeklyGamesSchedule currentNflWeek={currentNflWeek} />
+              </div>
+
+              {/* Fantasy News */}
+              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                  Fantasy News
+                </h2>
+                <NewsCard />
+              </div>
+            </div>
+          </div>
         </div>
-
-        {/* News & Updates */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
-            Fantasy News
-          </h3>
-          <NewsCard />
-        </div>
-
-      </div>
       </PullToRefresh>
     </>
   );

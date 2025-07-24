@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import PageMeta from "../components/common/PageMeta";
 import { useAuth } from '../context/AuthContext';
 import { listenToUserLeagues, League } from '../utils/leagues';
@@ -8,21 +8,25 @@ import { calculateCurrentNFLWeek } from '../utils/nflWeekHelper';
 import { SkeletonPage } from '../components/ui/skeleton/SkeletonLoader';
 import PullToRefresh from '../components/ui/PullToRefresh';
 
-// Import KPI Components
+// Import new modern components
+import LiveScoringWidget from '../components/dashboard/LiveScoringWidget';
+import DashboardQuickActions from '../components/dashboard/DashboardQuickActions';
+
+// Keep existing KPI components
 import LineupStatusKPI from '../components/dashboard/LineupStatusKPI';
 import LeagueStandingKPI from '../components/dashboard/LeagueStandingKPI';
-import QuickActionsKPI from '../components/dashboard/QuickActionsKPI';
 import WeeklyProgressKPI from '../components/dashboard/WeeklyProgressKPI';
 
-
-// Keep existing components for the full dashboard experience
+// Keep existing components for full dashboard experience
 import NewsCard from "../components/dashboard/Newscard";
 import WeeklyGamesSchedule from '../components/dashboard/WeeklyGamesSchedule';
 import MyLeaguesOverview from '../components/dashboard/MyLeaguesOverview';
 
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
+  
   const [leagues, setLeagues] = useState<League[]>([]);
+  const [selectedLeague, setSelectedLeague] = useState<League | null>(null);
   const [leaguesLoading, setLeaguesLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [lineupStatus, setLineupStatus] = useState({
@@ -34,7 +38,13 @@ export default function Dashboard() {
   const [scheduleData, setScheduleData] = useState<FirestoreWeeklySchedule | null>(null);
 
   const currentNflWeek = calculateCurrentNFLWeek();
-  const primaryLeague = leagues[0] || null; // For MVP, focus on primary league
+
+  // Set primary league when leagues are loaded
+  useEffect(() => {
+    if (leagues.length > 0 && !selectedLeague) {
+      setSelectedLeague(leagues[0]);
+    }
+  }, [leagues, selectedLeague]);
 
   // Fetch schedule data
   useEffect(() => {
@@ -63,7 +73,7 @@ export default function Dashboard() {
           setLeagues(fetchedLeagues);
           setLeaguesLoading(false);
           
-          // Check lineup status for primary league
+          // Check lineup status for all leagues
           if (fetchedLeagues.length > 0) {
             checkLineupForAllLeagues(fetchedLeagues, user.uid);
           } else {
@@ -167,12 +177,45 @@ export default function Dashboard() {
           </div>
         )}
 
-      {/* Mobile-First KPI Grid */}
-      <div className="grid gap-4 mb-6 sm:gap-6">
-        {/* Mobile: Single column, Tablet: 2 columns, Desktop: 4 columns */}
-        <div className="grid gap-4 sm:gap-6 sm:grid-cols-2 xl:grid-cols-4">
-          {/* Lineup Status - Most important, show first */}
-          <div className="sm:col-span-2 xl:col-span-1">
+        {/* Modern Dashboard Header */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">
+              Dashboard
+            </h1>
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              Week {currentNflWeek} • {APP_CONFIG.CURRENT_NFL_SEASON}
+            </div>
+          </div>
+          
+          {/* Progress Bar */}
+          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+            <div 
+              className="bg-brand-500 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${(currentNflWeek / 18) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Modern Grid Layout */}
+        <div className="grid gap-6 lg:grid-cols-12">
+          
+          {/* Left Column - Live Scoring & Quick Actions */}
+          <div className="lg:col-span-4 space-y-6">
+            <LiveScoringWidget />
+            
+            <DashboardQuickActions
+              leagues={leagues}
+              currentWeek={currentNflWeek}
+              lineupsComplete={lineupStatus.lineupsComplete}
+              totalLeagues={lineupStatus.totalLeagues}
+              nextGameTime={nextGameTime}
+            />
+          </div>
+
+          {/* Middle Column - KPIs */}
+          <div className="lg:col-span-4 space-y-6">
+            {/* Lineup Status - Most Important */}
             <LineupStatusKPI
               lineupsSet={lineupStatus.lineupsSet}
               lineupsComplete={lineupStatus.lineupsComplete}
@@ -181,70 +224,34 @@ export default function Dashboard() {
               currentWeek={currentNflWeek}
               nextLockTime={nextGameTime}
             />
-          </div>
 
-          {/* League Standing */}
-          <div className="xl:col-span-1">
+            {/* League Standing */}
             <LeagueStandingKPI
               leagues={leagues}
               currentUserId={user?.uid}
               currentWeek={currentNflWeek}
             />
-          </div>
 
-          {/* Weekly Progress */}
-          <div className="xl:col-span-1">
+            {/* Weekly Progress */}
             <WeeklyProgressKPI
               currentWeek={currentNflWeek}
               totalWeeks={18}
             />
           </div>
 
-          {/* Quick Actions */}
-          <div className="xl:col-span-1">
-            <QuickActionsKPI
-              primaryLeagueId={primaryLeague?.id ?? null}
-              currentWeek={currentNflWeek}
-              isLineupSet={lineupStatus.lineupsSet > 0}
-              nextGameTime={nextGameTime}
-              totalLeagues={lineupStatus.totalLeagues}
-              lineupsSet={lineupStatus.lineupsComplete}
+          {/* Right Column - News & League Overview */}
+          <div className="lg:col-span-4 space-y-6">
+            <NewsCard />
+            
+            <MyLeaguesOverview 
+              leagues={leagues} 
+              currentUserId={user?.uid} 
+              isLoadingLeagues={leaguesLoading} 
             />
-          </div>
-
-        </div>
-      </div>
-
-      {/* Traditional Dashboard Content - Three Column Layout on Desktop */}
-      <div className="space-y-6 xl:space-y-0 xl:grid xl:grid-cols-12 xl:gap-6">
-        {/* Left Column - News & Schedule */}
-        <div className="space-y-6 xl:col-span-4">
-          <NewsCard />
-          <WeeklyGamesSchedule currentNflWeek={currentNflWeek} />
-        </div>
-
-        {/* Middle Column - League Overview */}
-        <div className="xl:col-span-4">
-          <MyLeaguesOverview 
-            leagues={leagues} 
-            currentUserId={user?.uid} 
-            isLoadingLeagues={leaguesLoading} 
-          />
-        </div>
-
-        {/* Right Column - Additional content can be added here */}
-        <div className="xl:col-span-4">
-          {/* Placeholder for future components like recent transactions, player news, etc. */}
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
-            <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">
-              Coming Soon
-            </h3>
-            <p className="text-gray-600 dark:text-gray-400 text-sm">
-              Player alerts, recent transactions, and more insights will appear here.
-            </p>
+            
+            <WeeklyGamesSchedule currentNflWeek={currentNflWeek} />
           </div>
         </div>
-      </div>
       </PullToRefresh>
     </>
   );

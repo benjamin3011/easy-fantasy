@@ -43,8 +43,10 @@ interface BettingOddsResponse {
 
 interface TippableGame {
   gameId: string;
-  homeTeam: string;
-  awayTeam: string;
+  homeTeam: string; // Keep for backwards compatibility
+  awayTeam: string; // Keep for backwards compatibility
+  homeTeamId: string; // NEW: Team ID for direct Firestore access
+  awayTeamId: string; // NEW: Team ID for direct Firestore access
   gameTime: number; // epoch
   homeWinProbability: number; // 0-100
   awayWinProbability: number; // 0-100
@@ -248,6 +250,8 @@ async function createWeeklyTipsPoll(leagueId: string, week: number, season: numb
           gameId: game.gameID,
           homeTeam: game.home || bettingData.body.homeTeam,
           awayTeam: game.away || bettingData.body.awayTeam,
+          homeTeamId: game.teamIDHome || bettingData.body.teamIDHome || '',
+          awayTeamId: game.teamIDAway || bettingData.body.teamIDAway || '',
           gameTime: gameTime,
           homeWinProbability: winProbs.home,
           awayWinProbability: winProbs.away,
@@ -262,6 +266,8 @@ async function createWeeklyTipsPoll(leagueId: string, week: number, season: numb
           gameId: game.gameID,
           homeTeam: game.home || 'HOME',
           awayTeam: game.away || 'AWAY',
+          homeTeamId: game.teamIDHome || '',
+          awayTeamId: game.teamIDAway || '',
           gameTime: gameTime,
           homeWinProbability: 50,
           awayWinProbability: 50,
