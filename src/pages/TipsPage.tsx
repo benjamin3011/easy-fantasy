@@ -3,12 +3,15 @@ import PageMeta from "../components/common/PageMeta";
 import { useAuth } from '../context/AuthContext';
 import { listenToUserLeagues, League } from '../utils/leagues';
 import { calculateCurrentNFLWeek } from '../utils/nflWeekHelper';
-import WeeklyTips from '../components/gamecenter/WeeklyTips';
-import { ProphetLeaderboard } from '../components/gamecenter/ProphetLeaderboard';
+import { Suspense, lazy } from 'react';
+import PullToRefresh from '../components/ui/PullToRefresh';
+import CachedDataIndicator from '../components/common/CachedDataIndicator';
+const WeeklyTips = lazy(() => import('../components/gamecenter/WeeklyTips'));
+const ProphetLeaderboard = lazy(() => import('../components/gamecenter/ProphetLeaderboard').then(m => ({ default: m.ProphetLeaderboard })));
 import { MAX_NFL_WEEKS, APP_CONFIG } from '../config/appConfig';
 import Select from '../components/form/Select';
 import { useTipsStore } from '../store/tipsStore';
-import LoadingOverlay from '../components/ui/LoadingOverlay';
+import { SkeletonPage } from '../components/ui/skeleton/SkeletonLoader';
 import ComponentCard from '../components/common/ComponentCard';
 import Button from '../components/ui/button/Button';
 import { Link } from 'react-router';
@@ -141,17 +144,14 @@ export default function TipsPage() {
   // Loading state (similar to LineupPage)
   if (isPageLoading) {
     return (
-      <LoadingOverlay 
-        text={leaguesLoading ? "Loading your leagues..." : "Loading tips..."} 
-        fullScreen={true} 
-      />
+      <SkeletonPage type="dashboard" />
     );
   }
 
   // Error state (similar to LineupPage)
   if (pageError) {
     return (
-      <div className="container mx-auto text-center py-10">
+      <div className="container mx-auto px-4 mb-6">
         <ComponentCard title="Unable to Load Tips">
           <div className="p-6 text-center">
             <p className="text-lg text-red-500 mb-4">{pageError}</p>
@@ -180,7 +180,7 @@ export default function TipsPage() {
     return (
       <>
         <PageMeta title="Tips | Easy Fantasy" description="NFL Fantasy Football Tips" />
-        <div className="container mx-auto text-center py-10">
+        <div className="mx-auto text-center py-10 px-4">
           <ComponentCard title="No Leagues Found">
             <div className="p-6 text-center">
               <p className="text-lg text-gray-600 dark:text-gray-300 mb-4">
@@ -272,19 +272,23 @@ export default function TipsPage() {
         </div>
       )}
 
+      <PullToRefresh onRefresh={async () => { window.location.reload(); }}> 
       <div className="container mx-auto px-4 py-6">
         {/* Modern Header - Matching LineupPage */}
         <div className="mb-6">
           <div className="flex flex-col gap-3">
-            {/* Title and League Info */}
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
-                Weekly Tips
-              </h1>
-              {selectedLeague && (
+            {/* Title and Week Info */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+                  Game Tips
+                </h1>
                 <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-0.5">
-                  {selectedLeague.name} • Week {selectedWeek} • {currentSeasonString} Season
+                  Week {selectedWeek} • {selectedLeague?.name || 'Select League'}
                 </p>
+              </div>
+              {selectedLeague && (
+                <CachedDataIndicator queryKey={['tips', selectedLeague.id, selectedWeek.toString()]} />
               )}
             </div>
             
@@ -343,7 +347,7 @@ export default function TipsPage() {
 
         {/* Content */}
         {selectedLeague && (
-          <div>
+          <Suspense fallback={<SkeletonPage type="dashboard" />}> 
             {activeTab === 'tips' ? (
               <WeeklyTips
                 leagueId={selectedLeague.id}
@@ -356,9 +360,10 @@ export default function TipsPage() {
                 season={currentSeason}
               />
             )}
-          </div>
+          </Suspense>
         )}
       </div>
+      </PullToRefresh>
     </>
   );
 } 

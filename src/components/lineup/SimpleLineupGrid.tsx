@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Suspense, lazy } from 'react';
 import { useLineupStore } from '../../store/lineupStore';
+import { useNetworkStatus } from '../common/NetworkStatusProvider';
 import { POSITIONS_CONFIG } from '../../config/positions';
 import { SelectableEntity } from '../../types/lineup';
 import SimpleLineupSlot from './SimpleLineupSlot';
@@ -7,9 +9,11 @@ import SimpleEntitySelectionPanel from './SimpleEntitySelectionPanel';
 import SimpleCaptainSelector from './SimpleCaptainSelector';
 import SimpleLineupSummary from './SimpleLineupSummary';
 import SimpleQuickActions from './SimpleQuickActions';
-import LoadingOverlay from '../ui/LoadingOverlay';
-import StatsModal from '../modals/StatsModal';
-import StrategyPanel from './StrategyPanel';
+import { SkeletonPage } from '../ui/skeleton/SkeletonLoader';
+
+// Lazy load heavy components
+const StatsModal = lazy(() => import('../modals/StatsModal'));
+const StrategyPanel = lazy(() => import('./StrategyPanel'));
 import { APP_CONFIG } from '../../config/appConfig';
 import { calculateCurrentNFLWeek } from '../../utils/nflWeekHelper';
 
@@ -26,7 +30,14 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
   userId,
   leagueId 
 }) => {
-  const { lineup, isLoadingLineup, currentWeek, currentSeason } = useLineupStore();
+  const {
+    lineup,
+    isLoadingLineup,
+    currentWeek,
+    currentSeason,
+    setOnlineStatus,
+    loadPendingChanges,
+  } = useLineupStore();
 
   // Stats modal state
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
@@ -35,9 +46,21 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
   // Strategy panel state
   const [isStrategyPanelOpen, setIsStrategyPanelOpen] = useState(false);
 
+  const isOnline = useNetworkStatus();
+  
+  // Monitor network status
+  useEffect(() => {
+    setOnlineStatus(isOnline.isOnline);
+  }, [isOnline.isOnline, setOnlineStatus]);
+  
+  // Load pending changes on mount
+  useEffect(() => {
+    loadPendingChanges();
+  }, [loadPendingChanges]);
+  
   // Show loading overlay while lineup is being loaded
   if (isLoadingLineup) {
-    return <LoadingOverlay text="Loading your lineup..." fullScreen={false} />;
+    return <SkeletonPage type="dashboard" />;
   }
 
   // Stats modal handlers
@@ -159,16 +182,16 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
       <SimpleEntitySelectionPanel />
 
       {/* Stats Modal */}
-      {isStatsModalOpen && (
+      <Suspense fallback={null}>
         <StatsModal
           isOpen={isStatsModalOpen}
           onClose={handleCloseStatsModal}
           entity={selectedEntityForStats}
         />
-      )}
+      </Suspense>
 
       {/* Strategy Panel */}
-      {isStrategyPanelOpen && (
+      <Suspense fallback={null}>
         <StrategyPanel
           isOpen={isStrategyPanelOpen}
           onClose={handleCloseStrategyPanel}
@@ -177,7 +200,7 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
           currentWeek={currentWeek ?? undefined}
           currentSeason={currentSeason ?? undefined}
         />
-      )}
+      </Suspense>
     </div>
   );
 };

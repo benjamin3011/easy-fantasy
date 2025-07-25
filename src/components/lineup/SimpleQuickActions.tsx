@@ -74,36 +74,13 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
             
             // For teams: allow if PPG > 0 OR if they have season stats (early season scenario)
             if (entity.entityType === 'team') {
-              console.log(`Team ${entity.name}:`, {
-                actualPPG: entity.actualPPG,
-                hasSeasonTeamStats: !!entity.seasonTeamStats,
-                seasonTeamStatsKeys: entity.seasonTeamStats ? Object.keys(entity.seasonTeamStats) : [],
-                hasSeasonRecord: !!entity.seasonRecord,
-                seasonRecord: entity.seasonRecord,
-                seasonFP_Defense: entity.seasonFP_Defense,
-                seasonFP_Passing: entity.seasonFP_Passing,
-                seasonFP_Rushing: entity.seasonFP_Rushing,
-                seasonFP_ST: entity.seasonFP_ST,
-                allTeamKeys: Object.keys(entity)
-              });
-              
               // Check if team has season fantasy points for any position
               const hasSeasonFP = (entity.seasonFP_Defense !== undefined && entity.seasonFP_Defense > 0) || 
                                  (entity.seasonFP_Passing !== undefined && entity.seasonFP_Passing > 0) || 
                                  (entity.seasonFP_Rushing !== undefined && entity.seasonFP_Rushing > 0) || 
                                  (entity.seasonFP_ST !== undefined && entity.seasonFP_ST > 0);
               
-              console.log(`Team ${entity.name} hasSeasonFP:`, hasSeasonFP, {
-                seasonFP_Defense: entity.seasonFP_Defense,
-                seasonFP_Passing: entity.seasonFP_Passing,
-                seasonFP_Rushing: entity.seasonFP_Rushing,
-                seasonFP_ST: entity.seasonFP_ST
-              });
-              
-              const result = entity.actualPPG > 0 || hasSeasonFP;
-              console.log(`Team ${entity.name} filter result:`, result);
-              
-              return result;
+              return entity.actualPPG > 0 || hasSeasonFP;
             }
             
             return false;
@@ -178,18 +155,6 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
               
               // For teams: allow if PPG > 0 OR if they have season stats
               if (entity.entityType === 'team') {
-                console.log(`Optimize - Team ${entity.name}:`, {
-                  actualPPG: entity.actualPPG,
-                  hasSeasonTeamStats: !!entity.seasonTeamStats,
-                  seasonTeamStatsKeys: entity.seasonTeamStats ? Object.keys(entity.seasonTeamStats) : [],
-                  hasSeasonRecord: !!entity.seasonRecord,
-                  seasonRecord: entity.seasonRecord,
-                  seasonFP_Defense: entity.seasonFP_Defense,
-                  seasonFP_Passing: entity.seasonFP_Passing,
-                  seasonFP_Rushing: entity.seasonFP_Rushing,
-                  seasonFP_ST: entity.seasonFP_ST
-                });
-                
                 // Check if team has season fantasy points for any position
                 const hasSeasonFP = (entity.seasonFP_Defense !== undefined && entity.seasonFP_Defense > 0) || 
                                    (entity.seasonFP_Passing !== undefined && entity.seasonFP_Passing > 0) || 

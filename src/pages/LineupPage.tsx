@@ -6,13 +6,16 @@ import { APP_CONFIG, MAX_NFL_WEEKS } from '../config/appConfig';
 import { calculateCurrentNFLWeek } from '../utils/nflWeekHelper';
 import { listenToUserLeagues, League } from '../utils/leagues';
 import Select from '../components/form/Select';
-import LoadingOverlay from '../components/ui/LoadingOverlay';
+import { SkeletonPage } from '../components/ui/skeleton/SkeletonLoader';
 import ComponentCard from '../components/common/ComponentCard';
 import Button from '../components/ui/button/Button';
 import { Link } from 'react-router';
 
 // Import our new Zustand-powered components
-import SimpleLineupGrid from '../components/lineup/SimpleLineupGrid';
+import { Suspense, lazy } from 'react';
+import PullToRefresh from '../components/ui/PullToRefresh';
+import CachedDataIndicator from '../components/common/CachedDataIndicator';
+const SimpleLineupGrid = lazy(() => import('../components/lineup/SimpleLineupGrid'));
 import { useLineupStore } from '../store/lineupStore';
 
 export default function LineupPage() {
@@ -176,10 +179,9 @@ export default function LineupPage() {
   // Loading state
   if (isPageLoading) {
     return (
-      <LoadingOverlay 
-        text={leaguesLoading ? "Loading your leagues..." : "Loading lineup..."} 
-        fullScreen={true} 
-      />
+      <div className="container mx-auto px-4 py-6">
+        <SkeletonPage type="dashboard" />
+      </div>
     );
   }
 
@@ -255,6 +257,7 @@ export default function LineupPage() {
   }));
 
   const selectedLeague = userLeagues.find(league => league.id === resolvedLeagueId);
+  const currentNflWeek = resolvedWeek;
 
   return (
     <>
@@ -263,19 +266,23 @@ export default function LineupPage() {
         description="Set your weekly fantasy football lineup" 
       />
       
+      <PullToRefresh onRefresh={async () => window.location.reload()}> 
       <div className="container mx-auto px-4 py-6">
         {/* Header with Controls */}
         <div className="mb-4">
           <div className="flex flex-col gap-3">
             {/* Title and League Info */}
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
-                Week {resolvedWeek} Lineup
-              </h1>
-              {selectedLeague && (
-                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-0.5 truncate">
-                  {selectedLeague.name} • {currentSeasonString} Season
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+                  Lineup Builder
+                </h1>
+                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-0.5">
+                  Week {currentNflWeek} • {selectedLeague?.name || 'Select League'}
                 </p>
+              </div>
+              {userId && resolvedLeagueId && (
+                <CachedDataIndicator queryKey={['lineup', userId, resolvedLeagueId, currentNflWeek.toString()]} />
               )}
             </div>
             
@@ -307,13 +314,16 @@ export default function LineupPage() {
         </div>
 
         {/* Main Lineup Interface */}
-        <SimpleLineupGrid 
-          enableCaptainFeature={selectedLeague?.enableCaptainFeature ?? false}
-          captainPointMultiplier={selectedLeague?.captainPointMultiplier ?? 1.5}
-          userId={userId}
-          leagueId={resolvedLeagueId ?? undefined}
-        />
+        <Suspense fallback={<SkeletonPage type="dashboard" />}> 
+          <SimpleLineupGrid 
+            enableCaptainFeature={selectedLeague?.enableCaptainFeature ?? false}
+            captainPointMultiplier={selectedLeague?.captainPointMultiplier ?? 1.5}
+            userId={userId}
+            leagueId={resolvedLeagueId ?? undefined}
+          />
+        </Suspense>
       </div>
+      </PullToRefresh>
     </>
   );
 }

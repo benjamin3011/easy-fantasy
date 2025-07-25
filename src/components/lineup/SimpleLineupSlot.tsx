@@ -89,7 +89,7 @@ const SimpleLineupSlot: React.FC<SimpleLineupSlotProps> = ({
             onViewStats(selectedEntity);
           }}
           aria-label="Show stats"
-          className="absolute top-3 right-3 flex items-center justify-center w-8 h-8 text-gray-500 transition-colors border border-gray-200 rounded-lg hover:bg-gray-100 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700 z-10"
+          className="absolute top-2 right-2 flex items-center justify-center w-11 h-11 text-gray-500 transition-colors border border-gray-200 rounded-lg hover:bg-gray-100 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700 z-10"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" color='currentColor' fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M3.5 5.25C3.5 4.83579 3.16421 4.5 2.75 4.5C2.33579 4.5 2 4.83579 2 5.25V17.25C2 18.4926 3.00736 19.5 4.25 19.5H21.25C21.6642 19.5 22 19.1642 22 18.75C22 18.3358 21.6642 18 21.25 18H4.25C3.83579 18 3.5 17.6642 3.5 17.25V5.25Z" fill="currentColor"/>

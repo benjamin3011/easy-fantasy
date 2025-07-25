@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 import PageMeta from "../components/common/PageMeta";
 import { useAuth } from '../context/AuthContext';
 import { listenToUserLeagues, League } from '../utils/leagues';
@@ -8,12 +8,11 @@ import { calculateCurrentNFLWeek } from '../utils/nflWeekHelper';
 import { Link } from 'react-router';
 import { SkeletonPage } from '../components/ui/skeleton/SkeletonLoader';
 import PullToRefresh from '../components/ui/PullToRefresh';
-
-// Import components
 import LineupStatusKPI from '../components/dashboard/LineupStatusKPI';
-import WeeklyGamesSchedule from '../components/dashboard/WeeklyGamesSchedule';
-import NewsCard from "../components/dashboard/Newscard";
-import LiveScoringWidget from '../components/dashboard/LiveScoringWidget';
+import CachedDataIndicator from '../components/common/CachedDataIndicator';
+const LiveScoringWidget = lazy(() => import('../components/dashboard/LiveScoringWidget'));
+const NewsCard = lazy(() => import('../components/dashboard/Newscard'));
+const WeeklyGamesSchedule = lazy(() => import('../components/dashboard/WeeklyGamesSchedule'));
 
 interface QuickAction {
   title: string;
@@ -197,27 +196,17 @@ export default function HomePage() {
         )}
 
         <div className="container mx-auto px-4 py-6">
-          {/* Modern Header - Matching LineupPage */}
+          {/* Header Section */}
           <div className="mb-6">
-            <div className="flex flex-col gap-3">
-              {/* Title and Season Info */}
-              <div>
-                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
-                  Easy Fantasy
-                </h1>
-                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-0.5">
-                  Week {currentNflWeek} • {APP_CONFIG.CURRENT_NFL_SEASON} Season • {leagues.length} league{leagues.length !== 1 ? 's' : ''}
-                </p>
-              </div>
-              
-              {/* Progress Bar */}
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                <div 
-                  className="bg-brand-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${(currentNflWeek / 18) * 100}%` }}
-                />
-              </div>
+            <div className="flex items-center justify-between mb-2">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                Dashboard
+              </h1>
+              {user?.uid && <CachedDataIndicator queryKey={['userLeagues', user.uid]} />}
             </div>
+            <p className="text-gray-600 dark:text-gray-300">
+              Welcome back! Here's your fantasy football overview.
+            </p>
           </div>
 
           {/* Main Content Grid - More Efficient Layout */}
@@ -280,7 +269,9 @@ export default function HomePage() {
             </div>
 
             {/* Live Scoring - Full Width */}
-            <LiveScoringWidget />
+            <Suspense fallback={<SkeletonPage type="dashboard" />}> 
+              <LiveScoringWidget />
+            </Suspense>
 
             {/* Bottom Section - Games & News */}
             <div className="grid gap-4 md:grid-cols-2">
@@ -290,7 +281,9 @@ export default function HomePage() {
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                   This Week's Games
                 </h2>
-                <WeeklyGamesSchedule currentNflWeek={currentNflWeek} />
+                <Suspense fallback={<div className="h-40 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />}> 
+                  <WeeklyGamesSchedule currentNflWeek={currentNflWeek} />
+                </Suspense>
               </div>
 
               {/* Fantasy News */}
@@ -298,7 +291,9 @@ export default function HomePage() {
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                   Fantasy News
                 </h2>
-                <NewsCard />
+                <Suspense fallback={<div className="h-40 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />}> 
+                  <NewsCard />
+                </Suspense>
               </div>
             </div>
           </div>

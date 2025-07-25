@@ -129,6 +129,7 @@ export default function CreateLeagueDialog({ isOpen, onClose, onSuccess }: Props
               <Input
                 id="captainMultiplier"
                 type="number"
+                inputMode="numeric"
                 value={captainPointMultiplier}
                 onChange={(e) => setCaptainPointMultiplier(parseFloat(e.target.value))}
                 min="1"

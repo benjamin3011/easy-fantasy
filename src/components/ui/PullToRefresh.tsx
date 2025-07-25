@@ -122,26 +122,18 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
     return '';
   };
 
-  const showIndicator = pullDistance > 20 || isRefreshing;
-  const indicatorOpacity = Math.min(pullDistance / threshold, 1);
+  const showIndicator = pullDistance > 10 || isRefreshing;
+  const indicatorHeight = Math.max(pullDistance, 40);
 
   return (
-    <div 
-      ref={containerRef}
-      className={`relative overflow-auto h-full ${className}`}
-      style={{
-        transform: `translateY(${Math.min(pullDistance, threshold)}px)`,
-        transition: isPulling ? 'none' : 'transform 0.3s ease-out',
-      }}
-    >
-      {/* Pull indicator */}
+    <div className="relative">
+      {/* Pull indicator - stays fixed */}
       {showIndicator && (
         <div 
-          className="absolute top-0 left-0 right-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900 z-10"
+          className="absolute top-0 left-0 right-0 flex flex-col items-center justify-center z-50"
           style={{
-            height: `${Math.min(pullDistance, threshold)}px`,
-            opacity: indicatorOpacity,
-            transform: `translateY(-${Math.min(pullDistance, threshold)}px)`,
+            height: `${indicatorHeight}px`,
+            opacity: Math.min(pullDistance / 30, 1),
           }}
         >
           <div className="flex items-center space-x-2 text-gray-600 dark:text-gray-400">
@@ -165,9 +157,17 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
           </div>
         </div>
       )}
-      
-      {/* Content */}
-      <div className="relative z-0">
+
+      {/* Content container - moves down when pulled */}
+      <div 
+        ref={containerRef}
+        className={`relative overflow-auto min-h-screen h-full ${className}`}
+        style={{
+          transform: `translateY(${Math.min(pullDistance, threshold)}px)`,
+          transition: isPulling ? 'none' : 'transform 0.3s ease-out',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
         {children}
       </div>
     </div>

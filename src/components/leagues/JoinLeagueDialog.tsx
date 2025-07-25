@@ -94,6 +94,7 @@ export default function JoinLeagueDialog({ isOpen, onClose, onSuccess }: Props) 
             <Label required>League code</Label>
             <Input
               placeholder="e.g., 123456"
+              inputMode="numeric"
               className="uppercase tracking-wider font-mono"
               value={code}
               onChange={(e) => setCode(e.target.value)}

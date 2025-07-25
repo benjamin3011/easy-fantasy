@@ -4,7 +4,7 @@ import { doc, getDoc, onSnapshot, query, where, getDocs, collection, limit } fro
 import { db } from '../../firebase/firebase';
 import { useAuth } from '../../context/AuthContext';
 import TipsSummary from './TipsSummary';
-import LoadingOverlay from '../ui/LoadingOverlay';
+import { SkeletonPage } from '../ui/skeleton/SkeletonLoader';
 
 interface TippableGame {
   gameId: string;
@@ -374,10 +374,7 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
   // Loading state (similar to LineupPage)
   if (isPageLoading) {
     return (
-      <LoadingOverlay 
-        text={pollLoading ? "Loading tips poll..." : "Loading team information..."} 
-        fullScreen={false}
-      />
+      <SkeletonPage type="dashboard" />
     );
   }
 
@@ -430,17 +427,14 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
   // Show loading state - wait for both tips poll AND team data
   if (pollLoading || loadingTeamLogos) {
     return (
-      <LoadingOverlay 
-        text={pollLoading ? 'Fetching game predictions' : 'Loading team information'} 
-        fullScreen={false}
-      />
+      <SkeletonPage type="dashboard" />
     );
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full">
       {/* Main Tips Content - Full width on mobile, 2/3 on desktop */}
-      <div className="flex-1 space-y-6">
+      <div className="space-y-6 lg:col-span-2">
         {/* Lock Status */}
         {isLocked && (
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
@@ -639,7 +633,7 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
       </div>
 
       {/* Tips Summary - Full width on mobile, fixed width on desktop */}
-      <div className="w-full lg:w-80 lg:flex-shrink-0">
+      <div className="space-y-6 lg:col-span-1">
         <TipsSummary 
           totalGames={tipsPoll.games.length}
           week={week}
@@ -658,9 +652,11 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
             )}
             
             {submitting && (
-              <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 text-sm">
-                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                <span>Saving tips...</span>
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500 mx-auto mb-4"></div>
+                  <p className="text-gray-600 dark:text-gray-400">Saving your tips...</p>
+                </div>
               </div>
             )}
             

@@ -5,8 +5,8 @@
   "start_url": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
-  "background_color": "#ffffff",
-  "theme_color": "#465fff",
+  "background_color": "#161950",
+  "theme_color": "#0B345A",
   "orientation": "portrait-primary",
   "scope": "/",
   "categories": ["sports", "games"],
@@ -49,6 +49,18 @@
     {
       "src": "/icons/manifest-icon-512.maskable.png",
       "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/manifest-icon-1024.maskable.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/manifest-icon-1024.maskable.png",
+      "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "maskable"
     }

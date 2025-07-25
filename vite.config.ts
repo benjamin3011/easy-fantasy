@@ -40,7 +40,7 @@ export default defineConfig({
             'firebase/auth', 
             'firebase/firestore',
             'firebase/functions',
-            'firebase/messaging'
+            // 'firebase/messaging' - lazy loaded separately
           ],
           'ui-vendor': [
             'react-hot-toast',
@@ -64,8 +64,8 @@ export default defineConfig({
       'firebase/app',
       'firebase/auth',
       'firebase/firestore',
-      'firebase/functions',
-      'firebase/messaging'
+      'firebase/functions'
+      // 'firebase/messaging' - lazy loaded
     ]
   },
   plugins: [
@@ -91,6 +91,7 @@ export default defineConfig({
         '/icons/apple-icon-180.png',
         '/icons/manifest-icon-192.maskable.png',
         '/icons/manifest-icon-512.maskable.png',
+        '/icons/manifest-icon-1024.maskable.png',
         '/images/logo/logo-new.svg',
         '/images/logo/logo-new-dark.svg'
       ],
@@ -100,7 +101,7 @@ export default defineConfig({
         start_url: './',  // Changed to relative path
         scope: './',      // Add scope for PWA
         display: 'standalone',
-        background_color: '#ffffff',
+        background_color: '#161950',
         theme_color: '#0B345A',
         orientation: 'portrait-primary',
         icons: [
@@ -113,6 +114,12 @@ export default defineConfig({
           {
             src: '/icons/manifest-icon-512.maskable.png',
             sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable any'
+          },
+          {
+            src: '/icons/manifest-icon-1024.maskable.png',
+            sizes: '1024x1024',
             type: 'image/png',
             purpose: 'maskable any'
           }
@@ -138,10 +145,76 @@ export default defineConfig({
               expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 }
             }
           },
+          // Cache Firebase Functions API calls
+          {
+            urlPattern: /^https:\/\/us-central1-easy-fantasy-.*\.cloudfunctions\.net\//,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-cache',
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 }, // 24 hours
+              networkTimeoutSeconds: 10
+            }
+          },
+          // Cache Firestore API calls
           {
             urlPattern: /^https:\/\/firestore\.googleapis\.com\//,
             handler: 'NetworkFirst',
-            options: { cacheName: 'api-cache' }
+            options: {
+              cacheName: 'firestore-cache',
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 12 }, // 12 hours
+              networkTimeoutSeconds: 8
+            }
+          },
+          // Cache weekly schedule data (static-ish)
+          {
+            urlPattern: ({ request }) => {
+              return request.url.includes('weeklySchedule') || 
+                     request.url.includes('schedule');
+            },
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'schedule-cache',
+              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 6 } // 6 hours
+            }
+          },
+          // Cache user leagues (changes infrequently)
+          {
+            urlPattern: ({ request }) => {
+              return request.url.includes('userLeagues') || 
+                     request.url.includes('leagues');
+            },
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'leagues-cache',
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 }, // 24 hours
+              networkTimeoutSeconds: 5
+            }
+          },
+          // Cache lineup data (user-specific, changes frequently)
+          {
+            urlPattern: ({ request }) => {
+              return request.url.includes('lineup') && 
+                     (request.url.includes('fetch') || request.url.includes('stored'));
+            },
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'lineup-cache',
+              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 2 }, // 2 hours
+              networkTimeoutSeconds: 8
+            }
+          },
+          // Cache tips data
+          {
+            urlPattern: ({ request }) => {
+              return request.url.includes('tips') || 
+                     request.url.includes('gameTips');
+            },
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'tips-cache',
+              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 4 }, // 4 hours
+              networkTimeoutSeconds: 6
+            }
           }
         ]
       }

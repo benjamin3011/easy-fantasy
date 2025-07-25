@@ -187,6 +187,12 @@ layer(base);
   }
   body {
     @apply relative font-normal font-outfit z-1 bg-gray-50;
+    overflow-y: scroll; /* reserve scrollbar space even when not needed */
+  }
+
+  /* Reserve space for the scrollbar so layout doesn’t shift between pages that scroll and those that don’t */
+  html {
+    scrollbar-gutter: stable;
   }
 }
 
@@ -395,18 +401,7 @@ layer(base);
     display: none;
   }
 
-  /* Debug utility for testing (remove in production) */
-  .debug-safe-area {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: rgba(255, 0, 0, 0.3);
-    height: env(safe-area-inset-bottom);
-    pointer-events: none;
-    z-index: 99999;
-    display: none; /* Enable this to see safe area */
-  }
+
 }
 
 .tableCheckbox:checked ~ span span {

@@ -67,7 +67,7 @@ if (!self.define) {
     });
   };
 }
-define(['./workbox-f001acab'], (function (workbox) { 'use strict';
+define(['./workbox-b702db8f'], (function (workbox) { 'use strict';
 
   self.skipWaiting();
   workbox.clientsClaim();
@@ -82,7 +82,7 @@ define(['./workbox-f001acab'], (function (workbox) { 'use strict';
     "revision": "3ca0b8505b4bec776b69afdba2768812"
   }, {
     "url": "/index.html",
-    "revision": "0.7cm6hpk6dd8"
+    "revision": "0.j7gtk4guhig"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("/index.html"), {
@@ -96,9 +96,68 @@ define(['./workbox-f001acab'], (function (workbox) { 'use strict';
       maxAgeSeconds: 2592000
     })]
   }), 'GET');
-  workbox.registerRoute(/^https:\/\/firestore\.googleapis\.com\//, new workbox.NetworkFirst({
+  workbox.registerRoute(/^https:\/\/us-central1-easy-fantasy-.*\.cloudfunctions\.net\//, new workbox.NetworkFirst({
     "cacheName": "api-cache",
-    plugins: []
+    "networkTimeoutSeconds": 10,
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 50,
+      maxAgeSeconds: 86400
+    })]
+  }), 'GET');
+  workbox.registerRoute(/^https:\/\/firestore\.googleapis\.com\//, new workbox.NetworkFirst({
+    "cacheName": "firestore-cache",
+    "networkTimeoutSeconds": 8,
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 100,
+      maxAgeSeconds: 43200
+    })]
+  }), 'GET');
+  workbox.registerRoute(({
+    request
+  }) => {
+    return request.url.includes("weeklySchedule") || request.url.includes("schedule");
+  }, new workbox.StaleWhileRevalidate({
+    "cacheName": "schedule-cache",
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 20,
+      maxAgeSeconds: 21600
+    })]
+  }), 'GET');
+  workbox.registerRoute(({
+    request
+  }) => {
+    return request.url.includes("userLeagues") || request.url.includes("leagues");
+  }, new workbox.NetworkFirst({
+    "cacheName": "leagues-cache",
+    "networkTimeoutSeconds": 5,
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 10,
+      maxAgeSeconds: 86400
+    })]
+  }), 'GET');
+  workbox.registerRoute(({
+    request
+  }) => {
+    return request.url.includes("lineup") && (request.url.includes("fetch") || request.url.includes("stored"));
+  }, new workbox.NetworkFirst({
+    "cacheName": "lineup-cache",
+    "networkTimeoutSeconds": 8,
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 30,
+      maxAgeSeconds: 7200
+    })]
+  }), 'GET');
+  workbox.registerRoute(({
+    request
+  }) => {
+    return request.url.includes("tips") || request.url.includes("gameTips");
+  }, new workbox.NetworkFirst({
+    "cacheName": "tips-cache",
+    "networkTimeoutSeconds": 6,
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 20,
+      maxAgeSeconds: 14400
+    })]
   }), 'GET');
 
 }));

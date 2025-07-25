@@ -8,16 +8,16 @@ import "simplebar-react/dist/simplebar.min.css";
 import App from './App.tsx';
 import { AppWrapper } from "./components/common/PageMeta.tsx";
 import { ThemeProvider } from "./context/ThemeContext.tsx";
-import { initMessaging } from './firebase/firebase';
 import { initializeSentry } from './config/sentry.ts';
+import NetworkStatusProvider from './components/common/NetworkStatusProvider';
 
-// Create a client for React Query
+// Create a client for React Query with offline-friendly settings
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes
-      gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
-      retry: (failureCount, error) => {
+      staleTime: 1000 * 60 * 15, // 15 minutes - data stays fresh longer
+      gcTime: 1000 * 60 * 60 * 24 * 7, // 7 days - keep cached data much longer for offline
+      retry: (failureCount: number, error: unknown) => {
         // Don't retry on 4xx errors (client errors)
         if (error instanceof Error && error.message.includes('4')) {
           return false;
@@ -26,9 +26,6 @@ const queryClient = new QueryClient({
       },
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,
-    },
-    mutations: {
-      retry: 1,
     },
   },
 });
@@ -43,7 +40,7 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
       .then((registration) => {
-        console.log('SW registered: ', registration);
+
         
         // Check for updates every 60 seconds when app is active
         setInterval(() => {
@@ -62,14 +59,12 @@ if ('serviceWorker' in navigator) {
             });
           }
         });
-      })
-      .catch((registrationError) => {
-        console.log('SW registration failed: ', registrationError);
-      });
+              })
+        .catch(() => {
+          // Service worker registration failed - handled gracefully
+        });
   });
 }
-
-initMessaging(null);
 
 // Initialize Sentry before rendering the app
 initializeSentry();
@@ -78,9 +73,11 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <AppWrapper>
-          <App />
-        </AppWrapper>
+        <NetworkStatusProvider>
+          <AppWrapper>
+            <App />
+          </AppWrapper>
+        </NetworkStatusProvider>
       </ThemeProvider>
       {/* React Query Devtools - only shows in development */}
       <ReactQueryDevtools initialIsOpen={false} />

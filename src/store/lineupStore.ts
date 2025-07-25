@@ -15,6 +15,13 @@ import {
 import { saveWeeklyLineupCallable } from '../firebase/callables';
 import { SaveLineupPayload, SaveLineupResult, BackendLineupPick } from '../types/functions';
 
+// Offline support types
+interface PendingLineupChange {
+  lineup: Partial<Record<PositionKey, SelectableEntity | undefined>>;
+  captainId: string | null;
+  timestamp: number;
+}
+
 interface LineupState {
   // Current lineup data
   lineup: Partial<Record<PositionKey, SelectableEntity | undefined>>;
@@ -61,6 +68,10 @@ interface LineupState {
   isLoadingLineup: boolean;
   lineupUnsubscribe: (() => void) | null;
   
+  // Offline support
+  pendingChanges: PendingLineupChange | null;
+  isOffline: boolean;
+  
   // Actions
   setLineup: (lineup: Partial<Record<PositionKey, SelectableEntity | undefined>>) => void;
   updateLineupSlot: (positionKey: PositionKey, entity: SelectableEntity | undefined) => void;
@@ -89,6 +100,9 @@ interface LineupState {
   
   // Cleanup action
   cleanup: () => void;
+  setOnlineStatus: (isOnline: boolean) => void;
+  syncPendingChanges: () => Promise<void>;
+  loadPendingChanges: () => void;
 }
 
 export const useLineupStore = create<LineupState>()(
@@ -136,10 +150,141 @@ export const useLineupStore = create<LineupState>()(
       isLoadingLineup: false,
       lineupUnsubscribe: null,
       
+      // Offline support initial state
+      pendingChanges: null,
+      isOffline: !navigator.onLine,
+      
       // Basic actions with auto-save
       setLineup: (lineup) => {
         set({ lineup }, false, 'setLineup');
         get().autoSaveLineup(lineup);
+      },
+      
+      // Network status monitoring
+      setOnlineStatus: (isOnline: boolean) => {
+        const wasOffline = get().isOffline;
+        set({ isOffline: !isOnline }, false, 'setOnlineStatus');
+        
+        // If coming back online, try to sync pending changes
+        if (wasOffline && isOnline) {
+          get().syncPendingChanges();
+        }
+      },
+      
+      // Sync pending changes when coming back online
+      syncPendingChanges: async () => {
+        const state = get();
+        const { userId, leagueId, currentWeek, pendingChanges } = state;
+        
+        if (!pendingChanges || !userId || !leagueId || currentWeek === null) return;
+        
+        try {
+          // Try to restore from localStorage if not in memory
+          let changesToSync = pendingChanges;
+          if (!changesToSync) {
+            try {
+              const stored = localStorage.getItem(`lineup-pending-${userId}-${leagueId}-${currentWeek}`);
+              if (stored) {
+                changesToSync = JSON.parse(stored);
+              }
+            } catch (error) {
+              console.warn('Failed to restore pending changes from localStorage:', error);
+              return;
+            }
+          }
+          
+          if (!changesToSync) return;
+          
+          set({ autoSaveStatus: 'saving', saveError: null }, false, 'sync:start');
+          
+          // Prepare payload
+          const picksForBackend: Partial<Record<PositionKey, BackendLineupPick>> = {};
+          for (const key in changesToSync.lineup) {
+            if (Object.prototype.hasOwnProperty.call(changesToSync.lineup, key)) {
+              const entity = changesToSync.lineup[key as PositionKey];
+              if (entity) {
+                picksForBackend[key as PositionKey] = { id: entity.id, type: entity.entityType };
+              }
+            }
+          }
+          
+          const payload: SaveLineupPayload = {
+            leagueId: leagueId,
+            week: currentWeek,
+            picks: picksForBackend,
+            captainPlayerId: changesToSync.captainId,
+          };
+          
+          const result = await saveWeeklyLineupCallable(payload);
+          const data = result.data as SaveLineupResult;
+          
+          if (data.success) {
+            set({ 
+              autoSaveStatus: 'saved', 
+              saveError: null,
+              saveSuccess: 'Offline changes synced successfully',
+              pendingChanges: null
+            }, false, 'sync:success');
+            
+            // Clear localStorage
+            try {
+              localStorage.removeItem(`lineup-pending-${userId}-${leagueId}-${currentWeek}`);
+            } catch (error) {
+              console.warn('Failed to clear synced changes from localStorage:', error);
+            }
+            
+            // Update usage counts
+            if (userId && leagueId) {
+              const newUsageCounts = await fetchUsageCounts(userId, leagueId);
+              set({ usageCounts: newUsageCounts }, false, 'sync:updateUsage');
+            }
+            
+            // Clear status after delay
+            setTimeout(() => {
+              const currentState = get();
+              if (currentState.autoSaveStatus === 'saved') {
+                set({ autoSaveStatus: 'idle', saveSuccess: null }, false, 'sync:clearStatus');
+              }
+            }, 3000);
+            
+          } else {
+            set({ 
+              autoSaveStatus: 'error', 
+              saveError: data.message || "Failed to sync offline changes.",
+              saveSuccess: null
+            }, false, 'sync:error');
+          }
+        } catch (error) {
+          console.error("Error syncing pending changes:", error);
+          set({ 
+            autoSaveStatus: 'error', 
+            saveError: "Failed to sync offline changes. Will retry when online.",
+            saveSuccess: null
+          }, false, 'sync:catch');
+        }
+      },
+      
+      // Load pending changes from localStorage on init
+      loadPendingChanges: () => {
+        const state = get();
+        const { userId, leagueId, currentWeek } = state;
+        
+        if (!userId || !leagueId || currentWeek === null) return;
+        
+        try {
+          const stored = localStorage.getItem(`lineup-pending-${userId}-${leagueId}-${currentWeek}`);
+          if (stored) {
+            const pendingChanges = JSON.parse(stored);
+            set({ pendingChanges }, false, 'loadPendingChanges');
+            
+            // If we're online, try to sync immediately
+            if (navigator.onLine) {
+              get().syncPendingChanges();
+            }
+          }
+        } catch (error) {
+          console.warn('Failed to load pending changes from localStorage:', error);
+        }
       },
       
       updateLineupSlot: (positionKey, entity) => {
@@ -187,16 +332,8 @@ export const useLineupStore = create<LineupState>()(
       setCaptain: (slotKey, playerId) => {
         const state = get();
         
-        console.log('setCaptain called:', { 
-          slotKey, 
-          playerId, 
-          currentSlot: state.designatedCaptainSlotKey, 
-          currentPlayerId: state.selectedCaptainPlayerIdForSave 
-        });
-        
         // Prevent redundant calls
         if (state.designatedCaptainSlotKey === slotKey && state.selectedCaptainPlayerIdForSave === playerId) {
-          console.log('setCaptain: No change needed, skipping');
           return; // No change needed
         }
         
@@ -208,8 +345,6 @@ export const useLineupStore = create<LineupState>()(
             return;
           }
         }
-        
-        console.log('setCaptain: Updating store state');
         set({
           designatedCaptainSlotKey: slotKey,
           selectedCaptainPlayerIdForSave: playerId,
@@ -243,9 +378,51 @@ export const useLineupStore = create<LineupState>()(
       // Auto-save function with debouncing
       autoSaveLineup: async (lineup?: Partial<Record<PositionKey, SelectableEntity | undefined>>, captainId?: string | null) => {
         const state = get();
-        const { userId, leagueId, currentWeek, autoSaveTimeoutId } = state;
+        const { userId, leagueId, currentWeek, autoSaveTimeoutId, isOffline } = state;
         
         if (!userId || !leagueId || currentWeek === null) return;
+        
+        // Get fresh state to avoid stale closure issues
+        const freshState = get();
+        const currentLineup = lineup || freshState.lineup;
+        const currentCaptainId = captainId !== undefined ? captainId : freshState.selectedCaptainPlayerIdForSave;
+        
+        // Store optimistic changes immediately
+        const optimisticChange: PendingLineupChange = {
+          lineup: currentLineup,
+          captainId: currentCaptainId,
+          timestamp: Date.now(),
+        };
+        
+        // Save to localStorage for offline persistence
+        try {
+          localStorage.setItem(
+            `lineup-pending-${userId}-${leagueId}-${currentWeek}`,
+            JSON.stringify(optimisticChange)
+          );
+        } catch (error) {
+          console.warn('Failed to save pending changes to localStorage:', error);
+        }
+        
+        // If offline, just store the pending change and return
+        if (isOffline || !navigator.onLine) {
+          set({ 
+            pendingChanges: optimisticChange,
+            autoSaveStatus: 'saved', // Show as saved optimistically
+            saveSuccess: 'Changes saved locally (offline)',
+            saveError: null
+          }, false, 'autoSave:offline');
+          
+          // Clear status after delay
+          setTimeout(() => {
+            const currentState = get();
+            if (currentState.autoSaveStatus === 'saved') {
+              set({ autoSaveStatus: 'idle', saveSuccess: null }, false, 'autoSave:clearOfflineStatus');
+            }
+          }, 2000);
+          
+          return;
+        }
         
         // Clear any existing timeout
         if (autoSaveTimeoutId) {
@@ -256,11 +433,6 @@ export const useLineupStore = create<LineupState>()(
         const timeoutId = setTimeout(async () => {
           try {
             set({ autoSaveStatus: 'saving', saveError: null }, false, 'autoSave:start');
-            
-            // Get fresh state to avoid stale closure issues
-            const freshState = get();
-            const currentLineup = lineup || freshState.lineup;
-            const currentCaptainId = captainId !== undefined ? captainId : freshState.selectedCaptainPlayerIdForSave;
             
             const picksForBackend: Partial<Record<PositionKey, BackendLineupPick>> = {};
             for (const key in currentLineup) {
@@ -303,8 +475,16 @@ export const useLineupStore = create<LineupState>()(
               set({ 
                 autoSaveStatus: 'saved', 
                 saveError: null,
-                saveSuccess: 'Lineup saved automatically'
+                saveSuccess: 'Lineup saved automatically',
+                pendingChanges: null // Clear pending changes on successful save
               }, false, 'autoSave:success');
+              
+              // Clear localStorage pending changes
+              try {
+                localStorage.removeItem(`lineup-pending-${freshState.userId}-${freshState.leagueId}-${freshState.currentWeek}`);
+              } catch (error) {
+                console.warn('Failed to clear pending changes from localStorage:', error);
+              }
               
               // Update usage counts after successful save
               if (freshState.userId && freshState.leagueId) {
@@ -323,7 +503,9 @@ export const useLineupStore = create<LineupState>()(
               set({ 
                 autoSaveStatus: 'error', 
                 saveError: data.message || "Failed to auto-save lineup.",
-                saveSuccess: null
+                saveSuccess: null,
+                // Keep pending changes on error - they'll be retried when online
+                pendingChanges: optimisticChange
               }, false, 'autoSave:error');
             }
           } catch (error) {
@@ -331,7 +513,9 @@ export const useLineupStore = create<LineupState>()(
             set({ 
               autoSaveStatus: 'error', 
               saveError: error instanceof Error ? error.message : "An unexpected error occurred while auto-saving.",
-              saveSuccess: null
+              saveSuccess: null,
+              // Keep pending changes on error - they'll be retried when online
+              pendingChanges: optimisticChange
             }, false, 'autoSave:catch');
           }
         }, 500); // 500ms debounce
@@ -452,15 +636,8 @@ export const useLineupStore = create<LineupState>()(
           const state = get();
           const { usageCounts } = state;
           
-          console.log('handleLineupData called with:', {
-            captainPlayerId: lineupData.captainPlayerId,
-            currentCaptainSlot: state.designatedCaptainSlotKey,
-            currentCaptainPlayerId: state.selectedCaptainPlayerIdForSave
-          });
-          
           if (!lineupData.picks) {
             // No lineup saved yet
-            console.log('handleLineupData: No picks found, clearing lineup');
             set({ 
               lineup: {},
               designatedCaptainSlotKey: null,
@@ -504,11 +681,6 @@ export const useLineupStore = create<LineupState>()(
             }
           }
           
-          console.log('handleLineupData: Setting captain to:', {
-            captainSlotKey,
-            captainPlayerId: lineupData.captainPlayerId
-          });
-          
           // Check if captain data has actually changed to prevent unnecessary updates
           const currentCaptainSlot = state.designatedCaptainSlotKey;
           const currentCaptainPlayerId = state.selectedCaptainPlayerIdForSave;
@@ -517,14 +689,12 @@ export const useLineupStore = create<LineupState>()(
           const captainHasChanged = currentCaptainSlot !== captainSlotKey || currentCaptainPlayerId !== newCaptainPlayerId;
           
           if (!captainHasChanged) {
-            console.log('handleLineupData: Captain data unchanged, skipping captain update');
             // Only update lineup, not captain state
             set({
               lineup: reconstructedLineup,
               isLoadingLineup: false,
             }, false, 'handleLineupData:lineupOnly');
           } else {
-            console.log('handleLineupData: Captain data changed, updating all state');
             set({
               lineup: reconstructedLineup,
               designatedCaptainSlotKey: captainSlotKey,

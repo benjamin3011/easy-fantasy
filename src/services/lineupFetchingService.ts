@@ -2,8 +2,7 @@ import { db } from '../firebase/firebase';
 import { collection, query, where, getDocs, DocumentData, doc, getDoc, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { SelectablePlayer, SelectableTeam, PositionKey, InjuryStatus, StoredLineupPicks, RawSeasonStats, SeasonRecord, SeasonTeamStats, DetailedGameStatsType, SelectableEntity } from '../types/lineup';
 import { APP_CONFIG } from '../config/appConfig'; // Import app config for season
-import { getFirestore } from 'firebase/firestore';
-import { measureAsyncPerformance, trackFirebaseOperation, addBreadcrumb } from '../config/sentry';
+import { measureAsyncPerformance, addBreadcrumb } from '../config/sentry';
 
 // ===== PERFORMANCE OPTIMIZATION: CACHING SYSTEM =====
 
@@ -224,21 +223,20 @@ export async function fetchSelectablePlayers(
   weeklySchedule?: FirestoreWeeklySchedule | null
 ): Promise<SelectablePlayer[]> {
   return measureAsyncPerformance(`fetchSelectablePlayers-${positionKey}`, async () => {
-    trackFirebaseOperation('query', 'players');
-    
-    const cacheKey = `players_${positionKey}`;
-    const cached = performanceCache.get<SelectablePlayer[]>(cacheKey);
-    if (cached) {
-      addBreadcrumb(`Cache hit for players: ${positionKey}`, 'performance', 'info');
-      return cached;
+    // Check cache first
+    const cacheKey = `players_${positionKey}_${JSON.stringify(usageCounts)}_${weeklySchedule?.week || 'no-schedule'}`;
+    const cachedData = performanceCache.get<SelectablePlayer[]>(cacheKey);
+    if (cachedData) {
+      return cachedData;
     }
 
-    const playersRef = collection(db, 'players');
-    const q = query(playersRef, where('position', '==', positionKey));
+    // Use lite client for read-only player data
+    const playersCollectionRef = collection(db, 'nfl_players');
+    const q = query(playersCollectionRef);
     const querySnapshot = await getDocs(q);
-    
+
     const players: SelectablePlayer[] = [];
-    querySnapshot.forEach((doc) => {
+    querySnapshot.docs.forEach((doc) => {
       const data = doc.data() as DocumentData;
       const player: SelectablePlayer = {
         id: doc.id,
@@ -278,6 +276,7 @@ export async function fetchSelectableTeams(
     return cachedData;
   }
 
+  // Use lite client for read-only team data
   const teamsCollectionRef = collection(db, 'teams');
   const q = query(teamsCollectionRef);
   const querySnapshot = await getDocs(q);
@@ -694,10 +693,10 @@ export async function fetchDetailedGameStatsForEntity(
   gameId: string
 ): Promise<DetailedGameStatsType | null> {
   try {
-    const db = getFirestore();
+    const firestoreDb = db; // Use the main db instance for game stats
     
     if (entityType === 'player') {
-      const docRef = doc(db, 'players', entityId, 'gamestats', gameId);
+      const docRef = doc(firestoreDb, 'players', entityId, 'gamestats', gameId);
       const docSnap = await getDoc(docRef);
       
       if (docSnap.exists()) {
@@ -705,7 +704,7 @@ export async function fetchDetailedGameStatsForEntity(
         return data as DetailedGameStatsType;
       }
     } else if (entityType === 'team') {
-      const docRef = doc(db, 'teams', entityId, 'gamestats', gameId);
+      const docRef = doc(firestoreDb, 'teams', entityId, 'gamestats', gameId);
       const docSnap = await getDoc(docRef);
       
       if (docSnap.exists()) {
@@ -739,8 +738,8 @@ export interface GameScore {
 
 export async function fetchGameScore(gameId: string): Promise<GameScore | null> {
   try {
-    const db = getFirestore();
-    const docRef = doc(db, 'gameScores', gameId);
+    const firestoreDb = db; // Use the main db instance for game scores
+    const docRef = doc(firestoreDb, 'gameScores', gameId);
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {

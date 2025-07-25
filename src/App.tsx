@@ -3,8 +3,8 @@ import { Suspense, lazy } from "react";
 import PWAUpdateNotification from "./components/common/PWAUpdateNotification";
 import { AuthProvider } from "./context/AuthContext";
 import AppLayout from "./layout/AppLayout";
-import PrivateRoute from "./components/auth/PrivateRoute";
 import PWAPrompt from 'react-ios-pwa-prompt';
+import PrivateRoute from "./components/auth/PrivateRoute";
 import { Toaster } from 'react-hot-toast';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import { SkeletonPage } from './components/ui/skeleton/SkeletonLoader';
@@ -86,9 +86,9 @@ function App() {
           <Route path="/reset-password" element={<ResetPassword />} />
           </Routes>
         </Router>
-        <PWAPrompt />
         <PWAUpdateNotification />
         <Toaster />
+        <PWAPrompt />
       </AuthProvider>
     </ErrorBoundary>
   )

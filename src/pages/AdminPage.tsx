@@ -475,6 +475,7 @@ export default function AdminPage() {
                    <Label htmlFor="scheduleWeekInput">NFL Week (1-18):</Label>
                    <Input
                         id="scheduleWeekInput" type="number"
+                        inputMode="numeric"
                         value={scheduleWeek}
                         onChange={(e) => setScheduleWeek(e.target.value)}
                         placeholder="Enter week number" min="1" max="18"
@@ -501,6 +502,7 @@ export default function AdminPage() {
                    <Label htmlFor="processWeekInput">NFL Week (1-18):</Label>
                    <Input
                         id="processWeekInput" type="number"
+                        inputMode="numeric"
                         value={processWeek}
                         onChange={(e) => setProcessWeek(e.target.value)}
                         placeholder="Enter week number" min="1" max="18"

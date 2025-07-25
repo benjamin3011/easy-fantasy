@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import PageMeta from "../components/common/PageMeta";
 import { useAuth } from '../context/AuthContext';
 import { listenToUserLeagues, League } from '../utils/leagues';

@@ -278,6 +278,7 @@ export default function LeagueDetail() {
                   <Input
                     id="multiplier"
                     type="number"
+                    inputMode="numeric"
                     min="1"
                     max="3"
                     step="0.1"

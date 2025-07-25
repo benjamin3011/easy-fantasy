@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { useModal } from "../hooks/useModal";
 
 import LeagueList from "../components/leagues/LeagueList";
+import PullToRefresh from '../components/ui/PullToRefresh';
 import PublicLeaguesList from "../components/leagues/PublicLeaguesList";
 import CreateLeagueDialog from "../components/leagues/CreateLeagueDialog";
 import JoinLeagueDialog from "../components/leagues/JoinLeagueDialog";
@@ -58,7 +59,7 @@ export default function LeaguesPage() {
 
   // *** UPDATE Dialog Success Handler ***
   const handleDialogSuccess = () => {
-      console.log("Dialog action successful, triggering public list refresh.");
+      
       // Increment the key to force PublicLeaguesList remount/refetch
       setPublicListRefreshKey(key => key + 1);
       // No need to manually reload myLeagues, listener handles it
@@ -69,11 +70,11 @@ export default function LeaguesPage() {
     <>
       <PageMeta title="Leagues | Easy Fantasy" description="NFL Fantasy Football" />
 
-      {/* Mobile-First Container */}
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 max-w-7xl">
+      {/* Pull to refresh wrapper */}
+      <PullToRefresh onRefresh={async () => window.location.reload()} disabled={createModal.isOpen || joinModal.isOpen}>
+      <div className="container mx-auto px-4 py-6">
           {/* Mobile-First Header */}
-          <div className="pt-4 pb-6">
+          <div className="mb-6">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
               Leagues
             </h1>
@@ -102,8 +103,7 @@ export default function LeaguesPage() {
             </div>
           </div>
         </div>
-      </div>
-
+      </PullToRefresh>
       {/* dialogs - use updated success handler */}
       <CreateLeagueDialog
         isOpen={createModal.isOpen}

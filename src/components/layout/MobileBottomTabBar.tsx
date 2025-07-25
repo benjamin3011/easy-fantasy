@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import { GridIcon, BoltIcon, ListIcon, UserCircleIcon } from '../../icons';
+import { useSidebar } from '../../context/SidebarContext';
 
 interface TabItem {
   name: string;
@@ -41,7 +42,9 @@ const tabItems: TabItem[] = [
 const MobileBottomTabBar: React.FC = () => {
   const location = useLocation();
   const { isAdmin } = useAuth();
+  const { isMobileOpen } = useSidebar();
   const [safeAreaBottom, setSafeAreaBottom] = useState(0);
+  const [prefetchedRoutes, setPrefetchedRoutes] = useState<Set<string>>(new Set());
 
   // Detect iPhone models and safe area
   useEffect(() => {
@@ -71,6 +74,31 @@ const MobileBottomTabBar: React.FC = () => {
     return () => window.removeEventListener('resize', detectSafeArea);
   }, []);
 
+  // Prefetch route on hover/focus
+  const handleRoutePreload = (path: string) => {
+    if (!prefetchedRoutes.has(path)) {
+      // Use dynamic import to prefetch the route component
+      switch (path) {
+        case '/':
+          import('../../pages/HomePage');
+          break;
+        case '/lineup':
+          import('../../pages/LineupPage');
+          break;
+        case '/tips':
+          import('../../pages/TipsPage');
+          break;
+        case '/leagues':
+          import('../../pages/LeaguesPage');
+          break;
+        case '/gamecenter':
+          // GameCenter route - check if this exists or use correct path
+          break;
+      }
+      setPrefetchedRoutes(prev => new Set([...prev, path]));
+    }
+  };
+
   const isActive = (path: string) => {
     if (path === '/') {
       return location.pathname === '/';
@@ -80,6 +108,11 @@ const MobileBottomTabBar: React.FC = () => {
 
   // Filter items based on admin status
   const visibleTabs = tabItems.filter(item => !item.adminOnly || isAdmin);
+
+  // Don't render on desktop or when mobile sidebar is open
+  if (window.innerWidth >= 768 || isMobileOpen) {
+    return null;
+  }
 
   return (
     <>
@@ -97,6 +130,13 @@ const MobileBottomTabBar: React.FC = () => {
               <Link
                 key={tab.path}
                 to={tab.path}
+                onClick={() => {
+                  if (!active && 'vibrate' in navigator) {
+                    navigator.vibrate?.(10);
+                  }
+                }}
+                onMouseEnter={() => handleRoutePreload(tab.path)}
+                onFocus={() => handleRoutePreload(tab.path)}
                 className={`
                   flex flex-col items-center justify-center
                   min-w-0 flex-1 px-1 py-2
@@ -108,7 +148,7 @@ const MobileBottomTabBar: React.FC = () => {
                 {/* Icon container with iOS-style background */}
                 <div className={`
                   flex items-center justify-center
-                  w-8 h-8 rounded-lg p-1.5
+                  w-11 h-11 rounded-lg p-2
                   transition-all duration-200 ease-out
                   ${active 
                     ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30' 

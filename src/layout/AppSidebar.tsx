@@ -67,6 +67,40 @@ const AppSidebar: React.FC = () => {
   // --- Get user and admin status ---
   const { isAdmin } = useAuth();
   const { isExpanded, isMobileOpen, isHovered, setIsHovered, closeMobileSidebar } = useSidebar();
+
+  /* ---------------------- Swipe-to-close (mobile) ---------------------- */
+  const sidebarRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isMobileOpen) return; // Only attach when open
+
+    const sidebarEl = sidebarRef.current;
+    if (!sidebarEl) return;
+
+    let startX = 0;
+    const threshold = 50;
+
+    const onTouchStart = (e: TouchEvent) => {
+      startX = e.touches[0].clientX;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const deltaX = e.touches[0].clientX - startX;
+      // Detect left swipe (negative delta) beyond threshold
+      if (deltaX < -threshold) {
+        closeMobileSidebar();
+      }
+    };
+
+    sidebarEl.addEventListener('touchstart', onTouchStart);
+    sidebarEl.addEventListener('touchmove', onTouchMove);
+
+    return () => {
+      sidebarEl.removeEventListener('touchstart', onTouchStart);
+      sidebarEl.removeEventListener('touchmove', onTouchMove);
+    };
+  }, [isMobileOpen, closeMobileSidebar]);
+
   const location = useLocation();
 
   const [openSubmenu, setOpenSubmenu] = useState<{
@@ -277,6 +311,7 @@ const AppSidebar: React.FC = () => {
 
   return (
     <aside
+      ref={sidebarRef}
       className={`fixed mt-16 flex flex-col lg:mt-0 top-0 px-5 left-0 bg-white dark:bg-gray-900 dark:border-gray-800 text-gray-900 h-screen transition-all duration-300 ease-in-out z-50 border-r border-gray-200 
         ${
           isExpanded || isMobileOpen

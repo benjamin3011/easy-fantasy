@@ -7,7 +7,6 @@ import {
     doc,
     setDoc
 } from 'firebase/firestore';
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import { getFunctions } from 'firebase/functions';
 
 const firebaseConfig = {
@@ -52,25 +51,19 @@ export const auth = getAuth(app);
 export { db }; // Export the initialized db instance
 export const functions = getFunctions(app, 'europe-west3');
 
-// Lazy initialize messaging to reduce initial bundle impact
-let messaging: ReturnType<typeof getMessaging> | null = null;
-export const getMessagingInstance = () => {
-  if (!messaging) {
-    messaging = getMessaging(app);
-  }
-  return messaging;
-};
-
 // --- Firebase Cloud Messaging Initialization & Token Management ---
 export async function initMessaging(uid: string | null) {
   try {
+    // Lazy load messaging modules only when needed
+    const { getMessaging, getToken } = await import('firebase/messaging');
+    
     if (!('Notification' in window)) {
         return;
     }
     
     const permission = await Notification.requestPermission();
     if (permission === 'granted') {
-        const messagingInstance = getMessagingInstance();
+        const messagingInstance = getMessaging(app);
         const currentToken = await getToken(messagingInstance, { 
           vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY 
         });
@@ -89,7 +82,8 @@ export async function initMessaging(uid: string | null) {
   }
 
   // Set up message listener
-  const messagingInstance = getMessagingInstance();
+  const { getMessaging, onMessage } = await import('firebase/messaging');
+  const messagingInstance = getMessaging(app);
   onMessage(messagingInstance, (payload) => {
     if (payload.notification) { 
       // Handle foreground message display
