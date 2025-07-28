@@ -27,7 +27,11 @@ interface RecentPlay {
   time: string;
 }
 
-const LiveScoringWidget: React.FC = () => {
+interface LiveScoringWidgetProps {
+  isMobileView?: boolean;
+}
+
+const LiveScoringWidget: React.FC<LiveScoringWidgetProps> = ({ isMobileView = false }) => {
   const { user } = useAuth();
   const [leagues, setLeagues] = useState<League[]>([]);
   const [activePlayers, setActivePlayers] = useState<ActivePlayer[]>([]);
@@ -325,7 +329,7 @@ const LiveScoringWidget: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+      <div className={isMobileView ? "py-8" : "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6"}>
         <div className="flex items-center justify-center py-8">
           <Spinner size="md" className="mr-2" />
           <span className="text-gray-500 dark:text-gray-400">Loading live scoring...</span>
@@ -336,7 +340,7 @@ const LiveScoringWidget: React.FC = () => {
 
   if (error) {
     return (
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+      <div className={isMobileView ? "py-8" : "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6"}>
         <div className="text-center py-8 text-red-500">
           <p>{error}</p>
         </div>
@@ -348,10 +352,12 @@ const LiveScoringWidget: React.FC = () => {
 
   if (!hasData) {
     return (
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">
-          Live Scoring
-        </h2>
+      <div className={isMobileView ? "py-8" : "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6"}>
+        {!isMobileView && (
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">
+            Live Scoring
+          </h2>
+        )}
         <div className="text-center py-8 text-gray-500 dark:text-gray-400">
           <p>No active players found</p>
           <p className="text-sm mt-1">Set your lineup to see live scoring!</p>
@@ -361,7 +367,7 @@ const LiveScoringWidget: React.FC = () => {
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+    <div className={isMobileView ? "space-y-4" : "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 shadow-lg hover:shadow-xl transition-shadow duration-200"}>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-800 dark:text-white">
           Live Scoring

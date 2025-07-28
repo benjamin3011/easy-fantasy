@@ -1,6 +1,8 @@
 import React from 'react';
 import { PositionKey, SelectableEntity, SelectablePlayer } from '../../types/lineup';
 import { POSITIONS_CONFIG } from '../../config/positions';
+import InjurySuggestions from './InjurySuggestions';
+import type { FirestoreWeeklySchedule } from '../../services/lineupFetchingService';
 
 interface SmartSuggestionsProps {
   lineup: Partial<Record<PositionKey, SelectableEntity | undefined>>;
@@ -8,6 +10,9 @@ interface SmartSuggestionsProps {
   currentTimeEpoch: number;
   isGameStartedForEntity: (entity: SelectableEntity | undefined, timeEpoch: number) => boolean;
   hasLastWeekLineup?: boolean;
+  usageCounts?: Record<string, number>;
+  weeklySchedule?: FirestoreWeeklySchedule | null;
+  onPlayerSelect?: (player: SelectableEntity, position: PositionKey) => void;
 }
 
 interface Suggestion {
@@ -25,6 +30,9 @@ const SmartSuggestions: React.FC<SmartSuggestionsProps> = ({
   currentTimeEpoch,
   isGameStartedForEntity,
   hasLastWeekLineup,
+  usageCounts,
+  weeklySchedule,
+  onPlayerSelect,
 }) => {
   const generateSuggestions = (): Suggestion[] => {
     const suggestions: Suggestion[] = [];
@@ -192,6 +200,18 @@ const SmartSuggestions: React.FC<SmartSuggestionsProps> = ({
 
   return (
     <div className="mb-6 space-y-3">
+      {/* Enhanced Injury Suggestions */}
+      {usageCounts && weeklySchedule && (
+        <InjurySuggestions
+          lineup={lineup}
+          usageCounts={usageCounts}
+          weeklySchedule={weeklySchedule}
+          currentWeek={week}
+          onPlayerSelect={onPlayerSelect}
+        />
+      )}
+      
+      {/* Regular Smart Suggestions */}
       {topSuggestions.map((suggestion) => (
         <div
           key={suggestion.id}

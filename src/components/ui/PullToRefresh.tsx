@@ -161,7 +161,7 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
       {/* Content container - moves down when pulled */}
       <div 
         ref={containerRef}
-        className={`relative overflow-auto min-h-screen h-full ${className}`}
+        className={`relative overflow-auto h-full ${className}`}
         style={{
           transform: `translateY(${Math.min(pullDistance, threshold)}px)`,
           transition: isPulling ? 'none' : 'transform 0.3s ease-out',

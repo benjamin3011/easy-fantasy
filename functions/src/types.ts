@@ -273,12 +273,27 @@ export interface FirestoreLeague {
 
 // Add notification preferences types
 export interface NotificationPreferences {
+    // Lineup Management
     lineupDeadlineAlerts: boolean;
     lineupDeadlineMinutes: number; // How many minutes before game start to alert
+    
+    // Personal Performance  
     scoringAlerts: boolean;
+    captainSuccessAlerts: boolean;
+    
+    // Player Management
     injuryAlerts: boolean;
-    leagueActivityAlerts: boolean;
+    
+    // Personal Achievements
+    achievementAlerts: boolean;
+    
+    // System
     enabled: boolean; // Master toggle
+    quietHours: {
+        enabled: boolean;
+        start: string; // "22:00"
+        end: string;   // "08:00"
+    };
 }
 
 export interface FirestoreUser {

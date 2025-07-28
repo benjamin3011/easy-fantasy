@@ -218,7 +218,7 @@ const SmartLineupAssistance: React.FC<SmartLineupAssistanceProps> = ({
 
   if (isLoading) {
     return (
-      <div className={`bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
+      <div className={`bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
         <div className="animate-pulse">
           <div className="flex items-center justify-between mb-3">
             <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded"></div>
@@ -236,7 +236,7 @@ const SmartLineupAssistance: React.FC<SmartLineupAssistanceProps> = ({
 
   if (error || !insights) {
     return (
-      <div className={`bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
+      <div className={`bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-gray-900 dark:text-white">Smart Assistant</h3>
           <span className="text-xl">🤖</span>
@@ -249,7 +249,7 @@ const SmartLineupAssistance: React.FC<SmartLineupAssistanceProps> = ({
   }
 
   return (
-    <div className={`bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
+    <div className={`bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-medium text-gray-900 dark:text-white">Smart Assistant</h3>
         <span className="text-xl">{getRiskIcon()}</span>

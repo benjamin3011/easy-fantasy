@@ -10,21 +10,51 @@ import ComponentCard from './ComponentCard';
 import Spinner from '../ui/Spinner';
 
 interface NotificationPreferences {
+  // Lineup Management
   lineupDeadlineAlerts: boolean;
   lineupDeadlineMinutes: number;
+  
+  // Personal Performance  
   scoringAlerts: boolean;
+  captainSuccessAlerts: boolean;
+  
+  // Player Management
   injuryAlerts: boolean;
-  leagueActivityAlerts: boolean;
+  
+  // Personal Achievements
+  achievementAlerts: boolean;
+  
+  // System
   enabled: boolean;
+  quietHours: {
+    enabled: boolean;
+    start: string; // "22:00"
+    end: string;   // "08:00"
+  };
 }
 
 const defaultPreferences: NotificationPreferences = {
+  // Lineup Management
   lineupDeadlineAlerts: true,
   lineupDeadlineMinutes: 30,
-  scoringAlerts: false, // Will implement later
-  injuryAlerts: false, // Will implement later
-  leagueActivityAlerts: false, // Will implement later
+  
+  // Personal Performance
+  scoringAlerts: false, // Will implement in this phase
+  captainSuccessAlerts: false, // Will implement in this phase
+  
+  // Player Management
+  injuryAlerts: false, // Will implement in this phase
+  
+  // Personal Achievements
+  achievementAlerts: false, // Will implement in this phase
+  
+  // System
   enabled: true,
+  quietHours: {
+    enabled: false,
+    start: "22:00",
+    end: "08:00"
+  }
 };
 
 export default function NotificationSettings() {
@@ -120,7 +150,7 @@ export default function NotificationSettings() {
   };
 
   // Handle preference changes
-  const handlePreferenceChange = (key: keyof NotificationPreferences, value: boolean | number) => {
+  const handlePreferenceChange = (key: keyof NotificationPreferences, value: boolean | number | { enabled: boolean; start: string; end: string; }) => {
     setPreferences(prev => ({
       ...prev,
       [key]: value
@@ -228,37 +258,103 @@ export default function NotificationSettings() {
           )}
         </div>
 
-        {/* Future notification types (disabled for now) */}
-        <div className="space-y-4 opacity-50">
+        {/* Personal Performance Notifications */}
+        <div className="space-y-4">
+          <h4 className="font-medium text-gray-900 dark:text-white">Personal Performance</h4>
+          
           <Switch
             label="Scoring Alerts"
             defaultChecked={preferences.scoringAlerts}
             onChange={(checked) => handlePreferenceChange('scoringAlerts', checked)}
-            disabled={true}
+            disabled={!preferences.enabled || hasPermission !== true}
           />
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Get notified when your players score (Coming Soon)
+            Get notified when your players score fantasy points 🏈
           </p>
 
+          <Switch
+            label="Captain Success Alerts"
+            defaultChecked={preferences.captainSuccessAlerts}
+            onChange={(checked) => handlePreferenceChange('captainSuccessAlerts', checked)}
+            disabled={!preferences.enabled || hasPermission !== true}
+          />
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Get notified when your captain pick pays off 🔥
+          </p>
+        </div>
+
+        {/* Player Management Notifications */}
+        <div className="space-y-4">
+          <h4 className="font-medium text-gray-900 dark:text-white">Player Management</h4>
+          
           <Switch
             label="Injury Alerts"
             defaultChecked={preferences.injuryAlerts}
             onChange={(checked) => handlePreferenceChange('injuryAlerts', checked)}
-            disabled={true}
+            disabled={!preferences.enabled || hasPermission !== true}
           />
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Get notified about injury updates for your players (Coming Soon)
+            Get notified about injury updates for your selected players 🏥
           </p>
+        </div>
 
+        {/* Achievement Notifications */}
+        <div className="space-y-4">
+          <h4 className="font-medium text-gray-900 dark:text-white">Achievements</h4>
+          
           <Switch
-            label="League Activity"
-            defaultChecked={preferences.leagueActivityAlerts}
-            onChange={(checked) => handlePreferenceChange('leagueActivityAlerts', checked)}
-            disabled={true}
+            label="Achievement Alerts"
+            defaultChecked={preferences.achievementAlerts}
+            onChange={(checked) => handlePreferenceChange('achievementAlerts', checked)}
+            disabled={!preferences.enabled || hasPermission !== true}
           />
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Get notified about league standings and activity (Coming Soon)
+            Get notified about your lineup milestones and achievements 🏆
           </p>
+        </div>
+
+        {/* Quiet Hours */}
+        <div className="space-y-4">
+          <h4 className="font-medium text-gray-900 dark:text-white">Quiet Hours</h4>
+          
+          <Switch
+            label="Enable Quiet Hours"
+            defaultChecked={preferences.quietHours.enabled}
+            onChange={(checked) => handlePreferenceChange('quietHours', { ...preferences.quietHours, enabled: checked })}
+            disabled={!preferences.enabled || hasPermission !== true}
+          />
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Pause notifications during your sleep hours 😴
+          </p>
+          
+          {preferences.quietHours.enabled && (
+            <div className="ml-6 grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Start time:
+                </label>
+                <input
+                  type="time"
+                  value={preferences.quietHours.start}
+                  onChange={(e) => handlePreferenceChange('quietHours', { ...preferences.quietHours, start: e.target.value })}
+                  className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  disabled={!preferences.enabled || hasPermission !== true}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  End time:
+                </label>
+                <input
+                  type="time"
+                  value={preferences.quietHours.end}
+                  onChange={(e) => handlePreferenceChange('quietHours', { ...preferences.quietHours, end: e.target.value })}
+                  className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  disabled={!preferences.enabled || hasPermission !== true}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Error/Success Messages */}

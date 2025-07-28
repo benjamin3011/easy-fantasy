@@ -8,6 +8,54 @@ import type { NotificationPreferences, FirestoreUser } from './types';
 // Initialize messaging if not already done
 const messaging = admin.messaging();
 
+// Generate friendly, casual notification messages
+function generateFriendlyNotificationMessage(
+  homeTeam: string,
+  awayTeam: string,
+  minutesUntilGame: number,
+  positionCount: number,
+  leagueName: string
+): { title: string; body: string } {
+  
+  // Friendly titles with emojis
+  const titles = [
+    "🏈 Game time approaching!",
+    "⏰ Quick lineup check",
+    "🚨 Games starting soon!",
+    "⚡ Fantasy reminder"
+  ];
+  
+  // Generate body based on urgency and context
+  let body: string;
+  
+  if (minutesUntilGame <= 5) {
+    // Ultra urgent - last minute
+    body = `${homeTeam} vs ${awayTeam} starts in ${minutesUntilGame} minutes! Quick - you still need to pick ${positionCount} players. Tap to set your lineup! 🏃‍♂️`;
+  } else if (minutesUntilGame <= 15) {
+    // Very urgent 
+    body = `Hey! ${homeTeam} vs ${awayTeam} kicks off in ${minutesUntilGame} minutes and you're missing ${positionCount} picks in ${leagueName}. Tap to complete your lineup! ⚡`;
+  } else if (minutesUntilGame <= 30) {
+    // Moderate urgency
+    if (positionCount === 1) {
+      body = `${homeTeam} vs ${awayTeam} starts in ${minutesUntilGame} minutes - you just need 1 more player for ${leagueName}! 👆`;
+    } else {
+      body = `Heads up! ${homeTeam} vs ${awayTeam} starts in ${minutesUntilGame} minutes. You've got ${positionCount} spots to fill in ${leagueName} 🏈`;
+    }
+  } else {
+    // Early reminder - casual tone
+    if (positionCount <= 2) {
+      body = `Almost done! Just need ${positionCount} more picks for ${homeTeam} vs ${awayTeam} (starts in ${minutesUntilGame} min) 😊`;
+    } else {
+      body = `${homeTeam} vs ${awayTeam} starts in ${minutesUntilGame} minutes. Want to finish your ${leagueName} lineup? You've got ${positionCount} picks left 👍`;
+    }
+  }
+  
+  // Pick a random friendly title
+  const title = titles[Math.floor(Math.random() * titles.length)];
+  
+  return { title, body };
+}
+
 interface LineupDeadlineAlert {
   userId: string;
   leagueId: string;
@@ -161,11 +209,20 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
           const minutesUntilGame = Math.floor((alert.gameTime - now) / 60);
           const positionCount = alert.missingPositions.length;
           
+          // Generate friendly, casual notification message
+          const { title, body } = generateFriendlyNotificationMessage(
+            alert.homeTeam,
+            alert.awayTeam,
+            minutesUntilGame,
+            positionCount,
+            alert.leagueName
+          );
+          
           const message = {
             token: userData.fcmToken,
             notification: {
-              title: '⏰ Lineup Deadline Alert',
-              body: `${alert.homeTeam} vs ${alert.awayTeam} starts in ${minutesUntilGame} minutes! You have ${positionCount} positions to fill in ${alert.leagueName}.`
+              title,
+              body
             },
             data: {
               type: 'lineup_deadline',
@@ -213,7 +270,7 @@ export const checkLineupDeadlines = onSchedule(
 
 // Manual trigger for testing
 export const triggerLineupDeadlineCheck = onCall(
-  { region: REGION },
+  { region: REGION, cors: true },
   async (request) => {
     // Verify admin access
     if (!request.auth?.uid) {
@@ -239,9 +296,213 @@ export const triggerLineupDeadlineCheck = onCall(
   }
 );
 
+// Function to send performance alerts (captain success, scoring)
+export const sendPerformanceAlert = onCall(
+  { region: REGION, cors: true },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Must be authenticated');
+    }
+    
+    const { type, playerName, points, isCaptain } = request.data;
+    
+    try {
+      const userDoc = await admin.firestore()
+        .collection('users')
+        .doc(request.auth.uid)
+        .get();
+      
+      const userData = userDoc.data() as FirestoreUser;
+      
+      if (!userData?.fcmToken) {
+        return { success: false, message: 'No FCM token found' };
+      }
+      
+      // Check if user has performance notifications enabled
+      const prefs = userData.notificationPreferences;
+      if (!prefs?.enabled || !prefs?.scoringAlerts) {
+        return { success: false, message: 'Performance notifications disabled' };
+      }
+      
+      let title: string;
+      let body: string;
+      
+      if (type === 'captain_success' && isCaptain && prefs?.captainSuccessAlerts) {
+        title = '🔥 Captain Success!';
+        body = `Your captain ${playerName} scored ${points} points! Great choice! 🎯`;
+      } else if (type === 'big_performance' && points >= 20) {
+        title = '🚀 Big Performance!';
+        body = `${playerName} is having a huge game with ${points} points! 💪`;
+      } else if (type === 'scoring_update' && points >= 10) {
+        title = '📈 Scoring Update';
+        body = `${playerName} just scored! Now at ${points} fantasy points 🏈`;
+      } else {
+        return { success: false, message: 'Notification criteria not met' };
+      }
+      
+      const message = {
+        token: userData.fcmToken,
+        notification: { title, body },
+        data: {
+          type,
+          playerName,
+          points: points.toString()
+        }
+      };
+      
+      await messaging.send(message);
+      console.log(`Sent performance alert to user ${request.auth.uid}: ${title}`);
+      
+      return { success: true, message: 'Performance alert sent' };
+      
+    } catch (error) {
+      console.error('Error sending performance alert:', error);
+      throw new HttpsError('internal', 'Failed to send performance alert');
+    }
+  }
+);
+
+// Function to send injury alerts
+export const sendInjuryAlert = onCall(
+  { region: REGION, cors: true },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Must be authenticated');
+    }
+    
+    const { playerName, injuryStatus, injuryDetails, suggestedReplacement } = request.data;
+    
+    try {
+      const userDoc = await admin.firestore()
+        .collection('users')
+        .doc(request.auth.uid)
+        .get();
+      
+      const userData = userDoc.data() as FirestoreUser;
+      
+      if (!userData?.fcmToken) {
+        return { success: false, message: 'No FCM token found' };
+      }
+      
+      // Check if user has injury notifications enabled
+      const prefs = userData.notificationPreferences;
+      if (!prefs?.enabled || !prefs?.injuryAlerts) {
+        return { success: false, message: 'Injury notifications disabled' };
+      }
+      
+      let title: string;
+      let body: string;
+      
+      if (injuryStatus === 'Out') {
+        title = '🏥 Injury Alert';
+        body = `${playerName} is ruled OUT. ${suggestedReplacement ? `Consider ${suggestedReplacement} as replacement.` : 'Time to find a replacement!'} ${injuryDetails ? `(${injuryDetails})` : ''}`;
+      } else if (injuryStatus === 'Questionable') {
+        title = '⚠️ Injury Update';
+        body = `${playerName} is questionable to play. ${suggestedReplacement ? `Backup plan: ${suggestedReplacement}` : 'Keep an eye on this!'} ${injuryDetails ? `(${injuryDetails})` : ''}`;
+      } else if (injuryStatus === 'Doubtful') {
+        title = '🔶 Injury Warning';
+        body = `${playerName} is doubtful - ${suggestedReplacement ? `consider ${suggestedReplacement}` : 'might want to consider alternatives'}. ${injuryDetails ? `(${injuryDetails})` : ''}`;
+      } else {
+        return { success: false, message: 'Non-critical injury status' };
+      }
+      
+      const message = {
+        token: userData.fcmToken,
+        notification: { title, body },
+        data: {
+          type: 'injury_alert',
+          playerName,
+          injuryStatus,
+          injuryDetails: injuryDetails || '',
+          suggestedReplacement: suggestedReplacement || ''
+        }
+      };
+      
+      await messaging.send(message);
+      console.log(`Sent injury alert to user ${request.auth.uid}: ${playerName} - ${injuryStatus}`);
+      
+      return { success: true, message: 'Injury alert sent' };
+      
+    } catch (error) {
+      console.error('Error sending injury alert:', error);
+      throw new HttpsError('internal', 'Failed to send injury alert');
+    }
+  }
+);
+
+// Function to send achievement alerts
+export const sendAchievementAlert = onCall(
+  { region: REGION, cors: true },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Must be authenticated');
+    }
+    
+    const { achievementType, weekCount, leagueName } = request.data;
+    
+    try {
+      const userDoc = await admin.firestore()
+        .collection('users')
+        .doc(request.auth.uid)
+        .get();
+      
+      const userData = userDoc.data() as FirestoreUser;
+      
+      if (!userData?.fcmToken) {
+        return { success: false, message: 'No FCM token found' };
+      }
+      
+      // Check if user has achievement notifications enabled
+      const prefs = userData.notificationPreferences;
+      if (!prefs?.enabled || !prefs?.achievementAlerts) {
+        return { success: false, message: 'Achievement notifications disabled' };
+      }
+      
+      let title: string;
+      let body: string;
+      
+      if (achievementType === 'complete_streak') {
+        title = '🏆 Achievement Unlocked!';
+        if (weekCount === 3) {
+          body = `Nice! You've set complete lineups for 3 weeks straight in ${leagueName}! 💪`;
+        } else if (weekCount === 5) {
+          body = `Awesome! 5 weeks of complete lineups in ${leagueName}! You're on fire! 🔥`;
+        } else {
+          body = `Amazing! ${weekCount} weeks of complete lineups in ${leagueName}! Keep it up! 🌟`;
+        }
+      } else if (achievementType === 'perfect_week') {
+        title = '🎯 Perfect Week!';
+        body = `Incredible! You got every lineup spot right this week in ${leagueName}! 🤩`;
+      } else {
+        return { success: false, message: 'Unknown achievement type' };
+      }
+      
+      const message = {
+        token: userData.fcmToken,
+        notification: { title, body },
+        data: {
+          type: 'achievement',
+          achievementType,
+          weekCount: weekCount?.toString() || '',
+          leagueName
+        }
+      };
+      
+      await messaging.send(message);
+      console.log(`Sent achievement alert to user ${request.auth.uid}: ${achievementType}`);
+      
+      return { success: true, message: 'Achievement alert sent' };
+      
+    } catch (error) {
+      console.error('Error sending achievement alert:', error);
+      throw new HttpsError('internal', 'Failed to send achievement alert');
+    }
+  }
+);
+
 // Function to update user notification preferences
 export const updateNotificationPreferences = onCall(
-  { region: REGION },
+  { region: REGION, cors: true },
   async (request) => {
     if (!request.auth?.uid) {
       throw new HttpsError('unauthenticated', 'Must be authenticated');

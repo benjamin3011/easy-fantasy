@@ -9,6 +9,8 @@ import {
   manualFetchWeeklyScheduleCallable,
   createWeeklyTipsCallable
 } from '../firebase/callables';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../firebase/firebase';
 import Button from '../components/ui/button/Button';
 import PageMeta from '../components/common/PageMeta';
 import PageBreadcrumb from '../components/common/PageBreadCrumb';
@@ -48,6 +50,18 @@ export default function AdminPage() {
   // --- Feedback States ---
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // --- Notification Testing States ---
+  const [testPlayerName, setTestPlayerName] = useState('');
+  const [testPoints, setTestPoints] = useState('');
+  const [testPerformanceType, setTestPerformanceType] = useState('');
+  const [testInjuryPlayer, setTestInjuryPlayer] = useState('');
+  const [testInjuryStatus, setTestInjuryStatus] = useState('');
+  const [testInjuryDetails, setTestInjuryDetails] = useState('');
+  const [testAchievementType, setTestAchievementType] = useState('');
+  const [testWeekCount, setTestWeekCount] = useState('');
+  const [notificationTestMessage, setNotificationTestMessage] = useState<string | null>(null);
+  const [notificationTestError, setNotificationTestError] = useState<string | null>(null);
 
   // State for Mock Data Creator - Schedule
   const [mockSeason, setMockSeason] = useState<string>(APP_CONFIG.CURRENT_NFL_SEASON);
@@ -423,6 +437,84 @@ export default function AdminPage() {
     }
   };
 
+  // --- Notification Testing Functions ---
+  const testLineupDeadlineNotification = async () => {
+    setNotificationTestMessage(null);
+    setNotificationTestError(null);
+    
+    try {
+      const triggerLineupDeadlineCheck = httpsCallable(functions, 'triggerLineupDeadlineCheck');
+      const result = await triggerLineupDeadlineCheck();
+      setNotificationTestMessage(`Lineup deadline check triggered: ${(result.data as { message?: string })?.message || 'Success'}`);
+    } catch (err) {
+      setNotificationTestError(handleFirebaseError(err, 'testing lineup deadline notification'));
+    }
+  };
+
+  const testPerformanceNotification = async () => {
+    setNotificationTestMessage(null);
+    setNotificationTestError(null);
+    
+    try {
+      const sendPerformanceAlert = httpsCallable(functions, 'sendPerformanceAlert');
+      const result = await sendPerformanceAlert({
+        type: testPerformanceType,
+        playerName: testPlayerName,
+        points: parseInt(testPoints),
+        isCaptain: testPerformanceType === 'captain_success'
+      });
+      setNotificationTestMessage(`Performance alert sent: ${(result.data as { message?: string })?.message || 'Success'}`);
+      // Clear form
+      setTestPlayerName('');
+      setTestPoints('');
+      setTestPerformanceType('');
+    } catch (err) {
+      setNotificationTestError(handleFirebaseError(err, 'testing performance notification'));
+    }
+  };
+
+  const testInjuryNotification = async () => {
+    setNotificationTestMessage(null);
+    setNotificationTestError(null);
+    
+    try {
+      const sendInjuryAlert = httpsCallable(functions, 'sendInjuryAlert');
+      const result = await sendInjuryAlert({
+        playerName: testInjuryPlayer,
+        injuryStatus: testInjuryStatus,
+        injuryDetails: testInjuryDetails,
+        suggestedReplacement: testInjuryStatus === 'Out' ? 'Josh Allen (22.1 PPG, 4 picks left)' : 'Tua Tagovailoa (backup plan)'
+      });
+      setNotificationTestMessage(`Injury alert sent: ${(result.data as { message?: string })?.message || 'Success'}`);
+      // Clear form
+      setTestInjuryPlayer('');
+      setTestInjuryStatus('');
+      setTestInjuryDetails('');
+    } catch (err) {
+      setNotificationTestError(handleFirebaseError(err, 'testing injury notification'));
+    }
+  };
+
+  const testAchievementNotification = async () => {
+    setNotificationTestMessage(null);
+    setNotificationTestError(null);
+    
+    try {
+      const sendAchievementAlert = httpsCallable(functions, 'sendAchievementAlert');
+      const result = await sendAchievementAlert({
+        achievementType: testAchievementType,
+        weekCount: testWeekCount ? parseInt(testWeekCount) : undefined,
+        leagueName: 'Test League'
+      });
+      setNotificationTestMessage(`Achievement alert sent: ${(result.data as { message?: string })?.message || 'Success'}`);
+      // Clear form
+      setTestAchievementType('');
+      setTestWeekCount('');
+    } catch (err) {
+      setNotificationTestError(handleFirebaseError(err, 'testing achievement notification'));
+    }
+  };
+
   // --- Render Logic ---
 
   // Loading/Auth Checks
@@ -774,6 +866,141 @@ export default function AdminPage() {
               </Button>
             </div>
           </div>
+        </div>
+      </ComponentCard>
+
+      {/* Notification Testing Section */}
+      <ComponentCard title="🔔 Notification Testing">
+        <div className="p-4 space-y-6">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Test the new personal notification system with friendly, casual messaging.
+          </p>
+
+          {/* Test Lineup Deadline Notification */}
+          <div className="border-t pt-4">
+            <h4 className="font-medium text-gray-900 dark:text-white mb-3">Test Lineup Deadline Alert</h4>
+            <Button 
+              onClick={testLineupDeadlineNotification}
+              disabled={authLoading}
+              variant="outline"
+              className="w-full sm:w-auto"
+            >
+              Send Test Lineup Alert
+            </Button>
+            <p className="text-xs text-gray-500 mt-2">
+              Sends a friendly deadline reminder using the enhanced messaging system.
+            </p>
+          </div>
+
+          {/* Test Performance Notification */}
+          <div className="border-t pt-4">
+            <h4 className="font-medium text-gray-900 dark:text-white mb-3">Test Performance Alert</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+              <Input
+                placeholder="Player name"
+                value={testPlayerName}
+                onChange={(e) => setTestPlayerName(e.target.value)}
+              />
+              <Input
+                placeholder="Points (e.g., 24)"
+                type="number"
+                value={testPoints}
+                onChange={(e) => setTestPoints(e.target.value)}
+              />
+              <Select
+                options={[
+                  { value: 'scoring_update', label: 'Scoring Update' },
+                  { value: 'big_performance', label: 'Big Performance' },
+                  { value: 'captain_success', label: 'Captain Success' }
+                ]}
+                onChange={(value) => setTestPerformanceType(value)}
+                placeholder="Alert Type"
+              />
+            </div>
+            <Button 
+              onClick={testPerformanceNotification}
+              disabled={authLoading || !testPlayerName || !testPoints}
+              variant="outline"
+              className="w-full sm:w-auto"
+            >
+              Send Test Performance Alert
+            </Button>
+          </div>
+
+          {/* Test Injury Notification */}
+          <div className="border-t pt-4">
+            <h4 className="font-medium text-gray-900 dark:text-white mb-3">Test Injury Alert</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+              <Input
+                placeholder="Player name"
+                value={testInjuryPlayer}
+                onChange={(e) => setTestInjuryPlayer(e.target.value)}
+              />
+              <Select
+                options={[
+                  { value: 'Out', label: 'Out' },
+                  { value: 'Questionable', label: 'Questionable' },
+                  { value: 'Doubtful', label: 'Doubtful' }
+                ]}
+                onChange={(value) => setTestInjuryStatus(value)}
+                placeholder="Injury Status"
+              />
+              <Input
+                placeholder="Details (e.g., Ankle)"
+                value={testInjuryDetails}
+                onChange={(e) => setTestInjuryDetails(e.target.value)}
+              />
+            </div>
+            <Button 
+              onClick={testInjuryNotification}
+              disabled={authLoading || !testInjuryPlayer || !testInjuryStatus}
+              variant="outline"
+              className="w-full sm:w-auto"
+            >
+              Send Test Injury Alert
+            </Button>
+          </div>
+
+          {/* Test Achievement Notification */}
+          <div className="border-t pt-4">
+            <h4 className="font-medium text-gray-900 dark:text-white mb-3">Test Achievement Alert</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+              <Select
+                options={[
+                  { value: 'complete_streak', label: 'Complete Streak' },
+                  { value: 'perfect_week', label: 'Perfect Week' }
+                ]}
+                onChange={(value) => setTestAchievementType(value)}
+                placeholder="Achievement Type"
+              />
+              <Input
+                placeholder="Week count (for streaks)"
+                type="number"
+                value={testWeekCount}
+                onChange={(e) => setTestWeekCount(e.target.value)}
+              />
+            </div>
+            <Button 
+              onClick={testAchievementNotification}
+              disabled={authLoading || !testAchievementType}
+              variant="outline"
+              className="w-full sm:w-auto"
+            >
+              Send Test Achievement Alert
+            </Button>
+          </div>
+
+          {notificationTestMessage && (
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+              <p className="text-sm text-green-700 dark:text-green-300">{notificationTestMessage}</p>
+            </div>
+          )}
+
+          {notificationTestError && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+              <p className="text-sm text-red-700 dark:text-red-300">{notificationTestError}</p>
+            </div>
+          )}
         </div>
       </ComponentCard>
       </div>

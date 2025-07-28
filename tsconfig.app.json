@@ -20,7 +20,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+    
+    /* Additional strict options - balanced for React/Firebase */
+    /* Note: noImplicitReturns disabled due to React useEffect false positives */
+    /* Note: noUncheckedIndexedAccess disabled for Firebase compatibility */
   },
   "include": ["src"]
 }

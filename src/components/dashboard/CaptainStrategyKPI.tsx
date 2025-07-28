@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { fetchUserAnalytics, type CaptainAnalytics } from '../../services/analyticsService';
+import { APP_CONFIG } from '../../config/appConfig';
 
 interface CaptainStrategyKPIProps {
   userId?: string;
@@ -7,24 +9,13 @@ interface CaptainStrategyKPIProps {
   className?: string;
 }
 
-interface CaptainInsights {
-  totalCaptainPicks: number;
-  successfulCaptains: number;
-  successRate: number;
-  averageBonusPoints: number;
-  bestPosition: string;
-  worstPosition: string;
-  currentStreak: number;
-  streakType: 'win' | 'loss';
-}
-
 const CaptainStrategyKPI: React.FC<CaptainStrategyKPIProps> = ({
   userId,
   leagueId,
   currentWeek,
   className = ''
 }) => {
-  const [insights, setInsights] = useState<CaptainInsights | null>(null);
+  const [insights, setInsights] = useState<CaptainAnalytics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,10 +30,15 @@ const CaptainStrategyKPI: React.FC<CaptainStrategyKPIProps> = ({
         setIsLoading(true);
         setError(null);
         
-        // TODO: Implement actual captain analytics fetching
-        // For now, using mock data to demonstrate the UI
-        const mockInsights = generateMockCaptainInsights();
-        setInsights(mockInsights);
+        // Fetch real captain analytics data
+        const analytics = await fetchUserAnalytics(userId, leagueId, parseInt(APP_CONFIG.CURRENT_NFL_SEASON.toString()));
+        
+        if (analytics?.captainAnalytics) {
+          setInsights(analytics.captainAnalytics);
+        } else {
+          // No data available yet (pre-season or no lineups)
+          setInsights(null);
+        }
         
       } catch (err) {
         console.error('Error loading captain data:', err);
@@ -54,20 +50,6 @@ const CaptainStrategyKPI: React.FC<CaptainStrategyKPIProps> = ({
 
     loadCaptainData();
   }, [userId, leagueId, currentWeek]);
-
-  const generateMockCaptainInsights = (): CaptainInsights => {
-    // Mock data - replace with actual analytics later
-    return {
-      totalCaptainPicks: 8,
-      successfulCaptains: 5,
-      successRate: 62.5,
-      averageBonusPoints: 4.2,
-      bestPosition: 'QB',
-      worstPosition: 'TE',
-      currentStreak: 2,
-      streakType: 'win'
-    };
-  };
 
   const getSuccessRateColor = () => {
     if (!insights) return 'text-gray-500';
@@ -86,23 +68,29 @@ const CaptainStrategyKPI: React.FC<CaptainStrategyKPIProps> = ({
   };
 
   const getStreakDisplay = () => {
-    if (!insights) return '';
+    if (!insights || !insights.streaks) return '';
     
-    const emoji = insights.streakType === 'win' ? '🎯' : '❌';
-    const text = insights.streakType === 'win' ? 'hot' : 'cold';
-    return `${emoji} ${insights.currentStreak} ${text}`;
+    const emoji = insights.streaks.isPositive ? '🎯' : '❌';
+    const text = insights.streaks.isPositive ? 'hot' : 'cold';
+    return `${emoji} ${insights.streaks.current} ${text}`;
   };
 
   const getRecommendation = () => {
     if (!insights) return '';
     
+    // Use AI-generated recommendations if available
+    if (insights.recommendations && insights.recommendations.length > 0) {
+      return insights.recommendations[0];
+    }
+    
+    // Fallback to simple recommendations
     if (insights.successRate < 40) {
       return 'Try captaining your most consistent performers';
     }
     if (insights.bestPosition === 'QB' && insights.successRate > 60) {
       return 'QBs working well - stick with the strategy';
     }
-    if (insights.currentStreak >= 3 && insights.streakType === 'loss') {
+    if (insights.streaks.current >= 3 && !insights.streaks.isPositive) {
       return 'Switch up your captain strategy';
     }
     return `${insights.bestPosition} captains are your strength`;
@@ -110,7 +98,7 @@ const CaptainStrategyKPI: React.FC<CaptainStrategyKPIProps> = ({
 
   if (isLoading) {
     return (
-      <div className={`bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
+      <div className={`bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
         <div className="animate-pulse">
           <div className="flex items-center justify-between mb-3">
             <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded"></div>
@@ -123,22 +111,48 @@ const CaptainStrategyKPI: React.FC<CaptainStrategyKPIProps> = ({
     );
   }
 
-  if (error || !insights) {
+  if (error) {
     return (
-      <div className={`bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
+      <div className={`bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-gray-900 dark:text-white">Captain Strategy</h3>
           <span className="text-xl">👑</span>
         </div>
         <div className="text-sm text-gray-500 dark:text-gray-400">
-          {error || 'No captain data available'}
+          {error}
+        </div>
+      </div>
+    );
+  }
+
+  // No data available yet (pre-season or no lineup history)
+  if (!insights) {
+    return (
+      <div className={`bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-medium text-gray-900 dark:text-white">Captain Strategy</h3>
+          <span className="text-xl">👑</span>
+        </div>
+        
+        <div className="mb-2">
+          <div className="text-lg font-semibold text-gray-900 dark:text-white">
+            Waiting for Captain Results
+          </div>
+        </div>
+        
+        <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          Captain analytics will appear after you've made some lineup picks with captains.
+        </div>
+        
+        <div className="text-xs text-blue-600 dark:text-blue-400">
+          💡 Tip: Your captain gets a point multiplier - choose wisely!
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
+    <div className={`bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 ${className}`}>
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-medium text-gray-900 dark:text-white">Captain Strategy</h3>
         <span className="text-xl">{getSuccessRateIcon()}</span>
@@ -157,13 +171,13 @@ const CaptainStrategyKPI: React.FC<CaptainStrategyKPIProps> = ({
       {/* Captain Analytics */}
       <div className="space-y-2 mb-3">
         <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400">
-          <span>Picks made:</span>
-          <span className="font-medium">{insights.totalCaptainPicks}</span>
+          <span>ROI:</span>
+          <span className="font-medium">+{insights.roi.toFixed(1)}%</span>
         </div>
         
         <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400">
-          <span>Avg bonus:</span>
-          <span className="font-medium">+{insights.averageBonusPoints.toFixed(1)} pts</span>
+          <span>Bonus points:</span>
+          <span className="font-medium">+{insights.totalBonusPoints.toFixed(1)} pts</span>
         </div>
         
         <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400">
@@ -171,7 +185,7 @@ const CaptainStrategyKPI: React.FC<CaptainStrategyKPIProps> = ({
           <span className="font-medium text-green-600 dark:text-green-400">{insights.bestPosition}</span>
         </div>
         
-        {insights.currentStreak > 0 && (
+        {insights.streaks.current > 0 && (
           <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400">
             <span>Current streak:</span>
             <span className="font-medium">{getStreakDisplay()}</span>

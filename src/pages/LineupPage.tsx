@@ -18,6 +18,8 @@ import CachedDataIndicator from '../components/common/CachedDataIndicator';
 const SimpleLineupGrid = lazy(() => import('../components/lineup/SimpleLineupGrid'));
 import { useLineupStore } from '../store/lineupStore';
 
+
+
 export default function LineupPage() {
   const { leagueId: urlLeagueId, week: weekString } = useParams<{ leagueId: string; week: string }>();
   const navigate = useNavigate();
@@ -155,6 +157,8 @@ export default function LineupPage() {
     userLeagues.length, 
     resolvedLeagueId
   ]);
+
+
 
   const handleWeekChange = (newWeekValue: string) => {
     const newWeek = parseInt(newWeekValue, 10);

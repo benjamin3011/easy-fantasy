@@ -45,7 +45,7 @@ export default function NewsCard() {
 
   /* ---------------- ui -------------------------------------------- */
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-6
+    <div className="rounded-lg border border-gray-200 bg-white p-6
                     dark:border-gray-800 dark:bg-white/[0.03]">
       {/* header */}
       <div className="mb-6 flex justify-between">

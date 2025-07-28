@@ -230,9 +230,9 @@ export async function fetchSelectablePlayers(
       return cachedData;
     }
 
-    // Use lite client for read-only player data
-    const playersCollectionRef = collection(db, 'nfl_players');
-    const q = query(playersCollectionRef);
+    // Use the correct players collection (same as backend) with position filtering
+    const playersCollectionRef = collection(db, 'players');
+    const q = query(playersCollectionRef, where('position', '==', positionKey));
     const querySnapshot = await getDocs(q);
 
     const players: SelectablePlayer[] = [];
