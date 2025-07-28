@@ -7,6 +7,11 @@ interface DebugInfo {
   windowHeight: number;
   screenHeight: number;
   userAgent: string;
+  // Additional debug info
+  viewportHeight: number;
+  devicePixelRatio: number;
+  isIPhone: boolean;
+  hasHomeIndicator: boolean;
 }
 
 const DebugInfo: React.FC = () => {
@@ -31,6 +36,11 @@ const DebugInfo: React.FC = () => {
         windowHeight: window.innerHeight,
         screenHeight: window.screen.height,
         userAgent: navigator.userAgent,
+        // Additional debug info
+        viewportHeight: window.visualViewport?.height || window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio,
+        isIPhone: /iPhone/.test(navigator.userAgent),
+        hasHomeIndicator: window.screen.height >= 812 && /iPhone/.test(navigator.userAgent),
       });
     };
 
@@ -79,6 +89,10 @@ const DebugInfo: React.FC = () => {
       <div><strong>Safe Area Bottom:</strong> {debugInfo.safeAreaBottom}</div>
       <div><strong>Window Height:</strong> {debugInfo.windowHeight}px</div>
       <div><strong>Screen Height:</strong> {debugInfo.screenHeight}px</div>
+      <div><strong>Viewport Height:</strong> {debugInfo.viewportHeight}px</div>
+      <div><strong>Device Ratio:</strong> {debugInfo.devicePixelRatio}x</div>
+      <div><strong>iPhone:</strong> {debugInfo.isIPhone ? 'Yes' : 'No'}</div>
+      <div><strong>Home Indicator:</strong> {debugInfo.hasHomeIndicator ? 'Yes' : 'No'}</div>
       <div><strong>Platform:</strong> {debugInfo.userAgent.includes('iPhone') ? 'iOS' : 
                                     debugInfo.userAgent.includes('Android') ? 'Android' : 'Desktop'}</div>
       <button 

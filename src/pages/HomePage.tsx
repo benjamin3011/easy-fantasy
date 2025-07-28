@@ -15,9 +15,7 @@ import QuickPerformanceCard from '../components/analytics/QuickPerformanceCard';
 import CaptainTrackerCard from '../components/analytics/CaptainTrackerCard';
 import ResponsiveHomeTabs from '../components/dashboard/ResponsiveHomeTabs';
 
-const LiveScoringWidget = lazy(() => import('../components/dashboard/LiveScoringWidget'));
-const WeeklyGamesSchedule = lazy(() => import('../components/dashboard/WeeklyGamesSchedule'));
-
+const UnifiedGamesWidget = lazy(() => import('../components/dashboard/UnifiedGamesWidget'));
 
 
 export default function HomePage() {
@@ -178,7 +176,7 @@ export default function HomePage() {
           </div>
         )}
 
-        <div className="container mx-auto px-4 py-6">
+        <div className="container mx-auto px-4 py-6 pb-content-safe">
           {/* Header Section */}
           <div className="mb-6">
             <div className="flex items-center justify-between mb-2">
@@ -192,13 +190,24 @@ export default function HomePage() {
             </p>
           </div>
 
-          {/* Mobile: Tabs Layout (< 768px) */}
-          <div className="md:hidden">
-            <ResponsiveHomeTabs 
+          {/* Mobile: Responsive Tabs (< 768px) */}
+          <div className="block md:hidden">
+            <ResponsiveHomeTabs
               tabs={[
                 {
-                  id: 'overview',
-                  label: 'Overview',
+                  id: 'games',
+                  label: 'Games',
+                  component: (
+                    <div className="space-y-4">
+                      <Suspense fallback={<div className="space-y-3">{Array(5).fill(0).map((_, i) => <div key={i} className="h-16 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />)}</div>}> 
+                        <UnifiedGamesWidget currentNflWeek={currentNflWeek} isMobileView={true} />
+                      </Suspense>
+                    </div>
+                  )
+                },
+                {
+                  id: 'status',
+                  label: 'Status',
                   component: (
                     <div className="space-y-6">
                       {/* Lineup Status */}
@@ -216,18 +225,6 @@ export default function HomePage() {
                         />
                       </div>
 
-                      {/* Live Scoring - Full Width */}
-                      <Suspense fallback={<SkeletonPage type="dashboard" />}> 
-                        <LiveScoringWidget isMobileView={true} />
-                      </Suspense>
-                    </div>
-                  )
-                },
-                {
-                  id: 'analytics',
-                  label: 'Analytics',
-                  component: (
-                    <div className="space-y-6">
                       {/* Quick Performance Analytics */}
                       <QuickPerformanceCard leagueId={primaryLeague?.id} />
                       
@@ -235,33 +232,16 @@ export default function HomePage() {
                       <CaptainTrackerCard leagueId={primaryLeague?.id} />
                     </div>
                   )
-                },
-                {
-                  id: 'games',
-                  label: 'Games',
-                  component: (
-                    <div className="space-y-4">
-                      {/* Mobile-optimized: No card wrapper, natural scrolling */}
-                      <div className="space-y-1">
-                        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                          This Week's Games
-                        </h2>
-                        <Suspense fallback={<div className="space-y-3">{Array(5).fill(0).map((_, i) => <div key={i} className="h-16 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />)}</div>}> 
-                          <WeeklyGamesSchedule currentNflWeek={currentNflWeek} isMobileView={true} />
-                        </Suspense>
-                      </div>
-                    </div>
-                  )
                 }
               ]}
             />
           </div>
 
-          {/* Desktop: Original Grid Layout (≥ 768px) */}
+          {/* Desktop: Balanced Grid Layout (≥ 768px) */}
           <div className="hidden md:block">
             <div className="space-y-6">
               
-              {/* Top Section - Status & Quick Actions Combined */}
+              {/* Top Section - Status & Quick Performance */}
               <div className="grid gap-4 md:grid-cols-2">
                 
                 {/* Lineup Status */}
@@ -283,23 +263,13 @@ export default function HomePage() {
                 <QuickPerformanceCard leagueId={primaryLeague?.id} />
               </div>
 
-              {/* Live Scoring - Full Width */}
-              <Suspense fallback={<SkeletonPage type="dashboard" />}> 
-                <LiveScoringWidget />
-              </Suspense>
-
-              {/* Bottom Section - Games & News */}
+              {/* Bottom Section - Games & Captain Analytics */}
               <div className="grid gap-4 md:grid-cols-2">
                 
-                {/* This Week's Games */}
-                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                    This Week's Games
-                  </h2>
-                  <Suspense fallback={<div className="h-40 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />}> 
-                    <WeeklyGamesSchedule currentNflWeek={currentNflWeek} />
-                  </Suspense>
-                </div>
+                {/* Games & Live Scoring */}
+                <Suspense fallback={<div className="h-96 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />}> 
+                  <UnifiedGamesWidget currentNflWeek={currentNflWeek} />
+                </Suspense>
 
                 {/* Captain Tracker Analytics */}
                 <CaptainTrackerCard leagueId={primaryLeague?.id} />

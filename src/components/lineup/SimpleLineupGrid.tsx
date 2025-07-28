@@ -20,18 +20,13 @@ import { calculateCurrentNFLWeek } from '../../utils/nflWeekHelper';
 interface SimpleLineupGridProps {
   enableCaptainFeature: boolean;
   captainPointMultiplier: number;
-  userId?: string;
-  leagueId?: string;
 }
 
 const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({ 
   enableCaptainFeature, 
-  captainPointMultiplier,
-  userId,
-  leagueId 
+  captainPointMultiplier
 }) => {
   const {
-    lineup,
     isLoadingLineup,
     currentWeek,
     currentSeason,
@@ -75,18 +70,9 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
   };
 
   // Strategy panel handlers
-  const handleOpenStrategyPanel = () => {
-    setIsStrategyPanelOpen(true);
-  };
-
   const handleCloseStrategyPanel = () => {
     setIsStrategyPanelOpen(false);
   };
-
-  // Calculate completion stats
-  const totalSlots = POSITIONS_CONFIG.length;
-  const filledSlots = Object.values(lineup).filter(entity => entity !== undefined).length;
-  const completionPercentage = Math.round((filledSlots / totalSlots) * 100);
 
   // Separate player and team positions
   const playerPositions = POSITIONS_CONFIG.filter(pos => pos.type === 'player');
@@ -97,35 +83,7 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
   const seasonForActions = currentSeason || parseInt(APP_CONFIG.CURRENT_NFL_SEASON, 10);
 
   return (
-    <div className="space-y-8">
-      {/* Progress Section */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-sm text-gray-600 dark:text-gray-400">
-            {filledSlots} of {totalSlots} selected
-          </div>
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={handleOpenStrategyPanel}
-              className="text-sm px-3 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
-            >
-              📊 Strategy
-            </button>
-            <div className="text-lg font-semibold text-brand-600 dark:text-brand-400">
-              {completionPercentage}% Complete
-            </div>
-          </div>
-        </div>
-        
-        {/* Progress Bar */}
-        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-          <div 
-            className="bg-brand-500 h-2 rounded-full transition-all duration-300"
-            style={{ width: `${completionPercentage}%` }}
-          />
-        </div>
-      </div>
-
+    <>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column - Lineup Slots */}
         <div className="lg:col-span-2 space-y-6">
@@ -183,25 +141,26 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
 
       {/* Stats Modal */}
       <Suspense fallback={null}>
-        <StatsModal
-          isOpen={isStatsModalOpen}
-          onClose={handleCloseStatsModal}
-          entity={selectedEntityForStats}
-        />
+        {isStatsModalOpen && selectedEntityForStats && (
+          <StatsModal
+            isOpen={isStatsModalOpen}
+            onClose={handleCloseStatsModal}
+            entity={selectedEntityForStats}
+          />
+        )}
       </Suspense>
 
       {/* Strategy Panel */}
       <Suspense fallback={null}>
-        <StrategyPanel
-          isOpen={isStrategyPanelOpen}
-          onClose={handleCloseStrategyPanel}
-          userId={userId}
-          leagueId={leagueId}
-          currentWeek={currentWeek ?? undefined}
-          currentSeason={currentSeason ?? undefined}
-        />
+        {isStrategyPanelOpen && (
+          <StrategyPanel
+            isOpen={isStrategyPanelOpen}
+            onClose={handleCloseStrategyPanel}
+            currentWeek={weekForActions}
+          />
+        )}
       </Suspense>
-    </div>
+    </>
   );
 };
 

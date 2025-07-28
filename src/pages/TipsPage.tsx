@@ -273,7 +273,7 @@ export default function TipsPage() {
       )}
 
       <PullToRefresh onRefresh={async () => { window.location.reload(); }}> 
-      <div className="container mx-auto px-4 py-6">
+      <div className="container mx-auto px-4 py-6 pb-content-safe">
         {/* Modern Header - Matching LineupPage */}
         <div className="mb-6">
           <div className="flex flex-col gap-3">

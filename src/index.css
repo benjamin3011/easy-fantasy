@@ -331,6 +331,32 @@ layer(base);
     }
   }
 
+  /* Main content safe area - accounts for both mobile tab bar and iOS safe area */
+  .pb-content-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 1.5rem);
+  }
+
+  /* Mobile-specific content spacing (includes tab bar space) */
+  @media (max-width: 767px) {
+    .pb-content-safe {
+      padding-bottom: max(calc(70px + env(safe-area-inset-bottom)), 2rem);
+    }
+  }
+
+  /* For iOS standalone mode - extra spacing for home indicator */
+  @media (display-mode: standalone) and (max-width: 767px) {
+    .pb-content-safe {
+      padding-bottom: max(calc(70px + env(safe-area-inset-bottom) + 1rem), 2.5rem);
+    }
+  }
+
+  /* Desktop - just normal padding */
+  @media (min-width: 768px) {
+    .pb-content-safe {
+      padding-bottom: 2rem;
+    }
+  }
+
   /* PWA Bottom Tab Bar - Simplified Approach */
   .pwa-bottom-tabs {
     height: auto;

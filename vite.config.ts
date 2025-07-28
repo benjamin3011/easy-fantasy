@@ -74,19 +74,19 @@ export default defineConfig({
       svgrOptions: { icon: true, exportType: 'named', namedExport: 'ReactComponent' }
     }),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       devOptions: {
-        enabled: true,    // ← turn it on in dev so you can inspect the manifest tag
-        type: 'module',   // Add module type for better compatibility
+        enabled: true,    
+        type: 'module',   
         navigateFallback: 'index.html'
       },
-      // Add strategies for better ngrok compatibility
-      strategies: 'generateSW',
-      injectRegister: 'auto',
+      strategies: 'injectManifest', // Changed to injectManifest for custom SW
+      srcDir: 'src',
+      filename: 'sw.ts', // Custom service worker file
+      injectRegister: false,
       includeAssets: [
         'favicon.svg',
         'robots.txt',
-        // make sure these files live in /public
         '/icons/favicon-96x96.png',
         '/icons/apple-icon-180.png',
         '/icons/manifest-icon-192.maskable.png',
@@ -98,8 +98,8 @@ export default defineConfig({
       manifest: {
         name: 'Easy Fantasy',
         short_name: 'Easy Fantasy',
-        start_url: './',  // Changed to relative path
-        scope: './',      // Add scope for PWA
+        start_url: './',  
+        scope: './',      
         display: 'standalone',
         background_color: '#161950',
         theme_color: '#0B345A',
@@ -122,99 +122,6 @@ export default defineConfig({
             sizes: '1024x1024',
             type: 'image/png',
             purpose: 'maskable any'
-          }
-        ]
-      },
-      workbox: {
-        // precache all your static files (js/css/html/png/svg/ico)
-        globPatterns: [
-          '**/*.{js,css,html,png,svg,ico,txt,webmanifest}'
-        ],
-        // force a new SW to take control
-        skipWaiting: true,
-        clientsClaim: true,
-        // Add navigation fallback for SPA routing
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/_/, /\/[^/?]+\.[^/]+$/],
-        runtimeCaching: [
-          {
-            urlPattern: /\.(?:png|jpg|jpeg|svg|css|js)$/,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'assets-cache',
-              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 }
-            }
-          },
-          // Cache Firebase Functions API calls
-          {
-            urlPattern: /^https:\/\/us-central1-easy-fantasy-.*\.cloudfunctions\.net\//,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 }, // 24 hours
-              networkTimeoutSeconds: 10
-            }
-          },
-          // Cache Firestore API calls
-          {
-            urlPattern: /^https:\/\/firestore\.googleapis\.com\//,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'firestore-cache',
-              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 12 }, // 12 hours
-              networkTimeoutSeconds: 8
-            }
-          },
-          // Cache weekly schedule data (static-ish)
-          {
-            urlPattern: ({ request }) => {
-              return request.url.includes('weeklySchedule') || 
-                     request.url.includes('schedule');
-            },
-            handler: 'StaleWhileRevalidate',
-            options: {
-              cacheName: 'schedule-cache',
-              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 6 } // 6 hours
-            }
-          },
-          // Cache user leagues (changes infrequently)
-          {
-            urlPattern: ({ request }) => {
-              return request.url.includes('userLeagues') || 
-                     request.url.includes('leagues');
-            },
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'leagues-cache',
-              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 }, // 24 hours
-              networkTimeoutSeconds: 5
-            }
-          },
-          // Cache lineup data (user-specific, changes frequently)
-          {
-            urlPattern: ({ request }) => {
-              return request.url.includes('lineup') && 
-                     (request.url.includes('fetch') || request.url.includes('stored'));
-            },
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'lineup-cache',
-              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 2 }, // 2 hours
-              networkTimeoutSeconds: 8
-            }
-          },
-          // Cache tips data
-          {
-            urlPattern: ({ request }) => {
-              return request.url.includes('tips') || 
-                     request.url.includes('gameTips');
-            },
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'tips-cache',
-              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 4 }, // 4 hours
-              networkTimeoutSeconds: 6
-            }
           }
         ]
       }

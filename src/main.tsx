@@ -35,33 +35,84 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/firebase-messaging-sw.js');
 }
 
-// Register PWA service worker
+// Register PWA service worker with improved update handling
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
       .then((registration) => {
-
+        console.log('Service worker registered successfully');
         
-        // Check for updates every 60 seconds when app is active
+        // Global message listener for skip waiting
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          console.log('Received SW message:', event.data);
+          if (event.data && event.data.type === 'SKIP_WAITING') {
+            // Find all registrations and send skip waiting to any waiting workers
+            navigator.serviceWorker.getRegistrations().then(registrations => {
+              registrations.forEach(reg => {
+                if (reg.waiting) {
+                  console.log('Sending SKIP_WAITING to waiting service worker');
+                  reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                }
+              });
+            });
+          }
+        });
+
+        // Check for updates more frequently during active use
         setInterval(() => {
-          registration.update();
-        }, 60000);
+          registration.update().catch(err => {
+            console.warn('SW update check failed:', err);
+          });
+        }, 30000);
         
         // Listen for new service worker
         registration.addEventListener('updatefound', () => {
+          console.log('New service worker found');
           const newWorker = registration.installing;
           if (newWorker) {
             newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                // New content is available, dispatch custom event
-                window.dispatchEvent(new CustomEvent('pwa-update-available'));
+              console.log('SW state changed to:', newWorker.state);
+              if (newWorker.state === 'installed') {
+                if (navigator.serviceWorker.controller) {
+                  // Check if we recently updated to avoid notification loops
+                  const lastUpdate = localStorage.getItem('pwa-last-update');
+                  const lastDismiss = localStorage.getItem('pwa-update-dismissed');
+                  
+                  if (lastUpdate) {
+                    const timeSinceUpdate = Date.now() - parseInt(lastUpdate);
+                    if (timeSinceUpdate < 60000) { // 1 minute
+                      console.log('Skipping update notification - recently updated');
+                      return;
+                    }
+                  }
+                  
+                  if (lastDismiss) {
+                    const timeSinceDismiss = Date.now() - parseInt(lastDismiss);
+                    if (timeSinceDismiss < 300000) { // 5 minutes
+                      console.log('Skipping update notification - recently dismissed');
+                      return;
+                    }
+                  }
+                  
+                  // New content is available
+                  console.log('New PWA version available - dispatching event');
+                  window.dispatchEvent(new CustomEvent('pwa-update-available'));
+                } else {
+                  // Content is cached for first time
+                  console.log('PWA content cached for offline use');
+                }
               }
             });
           }
         });
+
+        // Listen for controlling service worker changes
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          console.log('Service worker controller changed - new SW is now controlling');
+        });
               })
-        .catch(() => {
-          // Service worker registration failed - handled gracefully
+        .catch((error) => {
+          console.warn('Service worker registration failed:', error);
         });
   });
 }

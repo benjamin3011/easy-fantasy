@@ -271,7 +271,7 @@ export default function LineupPage() {
       />
       
       <PullToRefresh onRefresh={async () => window.location.reload()}> 
-      <div className="container mx-auto px-4 py-6">
+      <div className="container mx-auto px-4 py-6 pb-content-safe">
         {/* Header with Controls */}
         <div className="mb-4">
           <div className="flex flex-col gap-3">
@@ -322,8 +322,6 @@ export default function LineupPage() {
           <SimpleLineupGrid 
             enableCaptainFeature={selectedLeague?.enableCaptainFeature ?? false}
             captainPointMultiplier={selectedLeague?.captainPointMultiplier ?? 1.5}
-            userId={userId}
-            leagueId={resolvedLeagueId ?? undefined}
           />
         </Suspense>
       </div>

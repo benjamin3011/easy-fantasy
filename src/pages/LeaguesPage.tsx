@@ -72,7 +72,7 @@ export default function LeaguesPage() {
 
       {/* Pull to refresh wrapper */}
       <PullToRefresh onRefresh={async () => window.location.reload()} disabled={createModal.isOpen || joinModal.isOpen}>
-      <div className="container mx-auto px-4 py-6">
+      <div className="container mx-auto px-4 py-6 pb-content-safe">
           {/* Mobile-First Header */}
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">

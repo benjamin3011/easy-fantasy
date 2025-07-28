@@ -10,6 +10,8 @@ interface PullToRefreshProps {
   releaseText?: string;
   className?: string;
   disabled?: boolean;
+  // Add option to completely disable pull-to-refresh for troubleshooting
+  enablePullToRefresh?: boolean;
 }
 
 const PullToRefresh: React.FC<PullToRefreshProps> = ({
@@ -22,6 +24,7 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
   releaseText = 'Release to refresh',
   className = '',
   disabled = false,
+  enablePullToRefresh = true,
 }) => {
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -30,85 +33,180 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
   const currentY = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const isScrolledToTop = useRef(true);
+  const shouldPreventDefault = useRef(false);
+  const initialScrollTop = useRef(0);
+  const touchStartTime = useRef(0);
 
   const checkScrollTop = useCallback(() => {
-    if (containerRef.current) {
-      isScrolledToTop.current = containerRef.current.scrollTop <= 0;
-    }
-  }, []);
+    if (!enablePullToRefresh || !containerRef.current) return;
+    
+    const scrollTop = containerRef.current.scrollTop;
+    isScrolledToTop.current = scrollTop <= 1; // Allow 1px tolerance
+  }, [enablePullToRefresh]);
 
   useEffect(() => {
+    if (!enablePullToRefresh) return;
+    
     const container = containerRef.current;
     if (container) {
-      container.addEventListener('scroll', checkScrollTop);
-      return () => container.removeEventListener('scroll', checkScrollTop);
+      const handleScroll = () => {
+        checkScrollTop();
+        // Reset pull state if user scrolls down
+        if (container.scrollTop > 5 && isPulling) {
+          setIsPulling(false);
+          setPullDistance(0);
+          shouldPreventDefault.current = false;
+        }
+      };
+      
+      container.addEventListener('scroll', handleScroll, { passive: true });
+      return () => container.removeEventListener('scroll', handleScroll);
     }
-  }, [checkScrollTop]);
+  }, [checkScrollTop, isPulling, enablePullToRefresh]);
 
   const handleTouchStart = useCallback((e: TouchEvent) => {
-    if (disabled || isRefreshing || !isScrolledToTop.current) return;
+    if (!enablePullToRefresh || disabled || isRefreshing) return;
     
-    startY.current = e.touches[0].clientY;
-    setIsPulling(true);
-  }, [disabled, isRefreshing]);
+    const container = containerRef.current;
+    if (!container) return;
+    
+    // Store touch start time to detect quick swipes
+    touchStartTime.current = Date.now();
+    
+    // Store initial scroll position
+    initialScrollTop.current = container.scrollTop;
+    isScrolledToTop.current = initialScrollTop.current <= 1;
+    
+    // Only start pull detection if we're at the top
+    if (isScrolledToTop.current) {
+      startY.current = e.touches[0].clientY;
+      currentY.current = startY.current;
+      shouldPreventDefault.current = false;
+    }
+  }, [disabled, isRefreshing, enablePullToRefresh]);
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
-    if (disabled || isRefreshing || !isPulling || !isScrolledToTop.current) return;
+    if (!enablePullToRefresh || disabled || isRefreshing) return;
 
+    const container = containerRef.current;
+    if (!container) return;
+    
     currentY.current = e.touches[0].clientY;
     const deltaY = currentY.current - startY.current;
-
-    if (deltaY > 0) {
-      // Prevent default scroll behavior when pulling down
-      e.preventDefault();
-      
-      // Apply resistance to make pull feel natural
-      const distance = Math.min(deltaY / resistance, threshold * 1.5);
-      setPullDistance(distance);
-    }
-  }, [disabled, isRefreshing, isPulling, resistance, threshold]);
-
-  const handleTouchEnd = useCallback(async () => {
-    if (disabled || isRefreshing || !isPulling) return;
-
-    setIsPulling(false);
-
-    if (pullDistance >= threshold) {
-      setIsRefreshing(true);
-      
-      // Add haptic feedback if available
-      if (navigator.vibrate) {
-        navigator.vibrate(10);
-      }
-
-      try {
-        await onRefresh();
-      } catch (error) {
-        console.error('Refresh failed:', error);
-      } finally {
-        setIsRefreshing(false);
+    
+    // Detect if this is a quick swipe (should not trigger pull-to-refresh)
+    const touchDuration = Date.now() - touchStartTime.current;
+    const isQuickSwipe = touchDuration < 100 && Math.abs(deltaY) > 30;
+    
+    if (isQuickSwipe) {
+      // Reset pull state for quick swipes
+      if (isPulling) {
+        setIsPulling(false);
         setPullDistance(0);
+        shouldPreventDefault.current = false;
+      }
+      return;
+    }
+    
+    // Only handle pull-to-refresh if:
+    // 1. We started at the top
+    // 2. We're moving downward (deltaY > 0)
+    // 3. We're still at or near the top
+    // 4. It's not a quick swipe
+    const currentScrollTop = container.scrollTop;
+    const isStillAtTop = currentScrollTop <= 1;
+    
+    if (isScrolledToTop.current && deltaY > 0 && isStillAtTop && !isQuickSwipe) {
+      // Only start pulling if we've moved a minimum distance
+      if (deltaY > 15) { // Increased threshold
+        if (!isPulling) {
+          setIsPulling(true);
+        }
+        
+        // Only prevent default once we're definitely pulling and moving slowly
+        if (deltaY > 25 && touchDuration > 150) { // Require slower movement
+          shouldPreventDefault.current = true;
+          e.preventDefault();
+        }
+        
+        // Apply resistance to make pull feel natural
+        const distance = Math.min(deltaY / resistance, threshold * 1.5);
+        setPullDistance(distance);
       }
     } else {
-      // Animate back to 0
-      setPullDistance(0);
+      // Reset pull state if conditions aren't met
+      if (isPulling) {
+        setIsPulling(false);
+        setPullDistance(0);
+        shouldPreventDefault.current = false;
+      }
     }
-  }, [disabled, isRefreshing, isPulling, pullDistance, threshold, onRefresh]);
+  }, [disabled, isRefreshing, isPulling, resistance, threshold, enablePullToRefresh]);
+
+  const handleTouchEnd = useCallback(async () => {
+    if (!enablePullToRefresh || disabled || isRefreshing) return;
+
+    shouldPreventDefault.current = false;
+
+    if (isPulling) {
+      setIsPulling(false);
+
+      if (pullDistance >= threshold) {
+        setIsRefreshing(true);
+        
+        // Add haptic feedback if available
+        if (navigator.vibrate) {
+          navigator.vibrate(10);
+        }
+
+        try {
+          await onRefresh();
+        } catch (error) {
+          console.error('Refresh failed:', error);
+        } finally {
+          setIsRefreshing(false);
+          setPullDistance(0);
+        }
+      } else {
+        // Animate back to 0
+        setPullDistance(0);
+      }
+    }
+  }, [disabled, isRefreshing, isPulling, pullDistance, threshold, onRefresh, enablePullToRefresh]);
 
   useEffect(() => {
+    if (!enablePullToRefresh) return;
+    
     const container = containerRef.current;
     if (!container) return;
 
-    container.addEventListener('touchstart', handleTouchStart, { passive: false });
-    container.addEventListener('touchmove', handleTouchMove, { passive: false });
-    container.addEventListener('touchend', handleTouchEnd);
+    // Use passive listeners where possible to improve scroll performance
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false }); // Need non-passive for preventDefault
+    container.addEventListener('touchend', handleTouchEnd, { passive: true });
 
     return () => {
       container.removeEventListener('touchstart', handleTouchStart);
       container.removeEventListener('touchmove', handleTouchMove);
       container.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd, enablePullToRefresh]);
+
+  // If pull-to-refresh is disabled, just render the content without pull behavior
+  if (!enablePullToRefresh) {
+    return (
+      <div 
+        className={`relative h-full ${className}`}
+        style={{
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        {children}
+      </div>
+    );
+  }
 
   const getStatusText = () => {
     if (isRefreshing) return refreshingText;
@@ -122,7 +220,7 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
     return '';
   };
 
-  const showIndicator = pullDistance > 10 || isRefreshing;
+  const showIndicator = pullDistance > 25 || isRefreshing; // Increased threshold to reduce flicker
   const indicatorHeight = Math.max(pullDistance, 40);
 
   return (
@@ -130,7 +228,7 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
       {/* Pull indicator - stays fixed */}
       {showIndicator && (
         <div 
-          className="absolute top-0 left-0 right-0 flex flex-col items-center justify-center z-50"
+          className="absolute top-0 left-0 right-0 flex flex-col items-center justify-center z-50 pointer-events-none"
           style={{
             height: `${indicatorHeight}px`,
             opacity: Math.min(pullDistance / 30, 1),
@@ -161,11 +259,17 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
       {/* Content container - moves down when pulled */}
       <div 
         ref={containerRef}
-        className={`relative overflow-auto h-full ${className}`}
+        className={`relative h-full ${className}`}
         style={{
           transform: `translateY(${Math.min(pullDistance, threshold)}px)`,
           transition: isPulling ? 'none' : 'transform 0.3s ease-out',
           WebkitOverflowScrolling: 'touch',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          // Improve scroll performance
+          willChange: isPulling ? 'transform' : 'auto',
+          // Ensure smooth scrolling
+          scrollBehavior: 'smooth',
         }}
       >
         {children}
