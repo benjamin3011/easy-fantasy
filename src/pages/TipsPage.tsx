@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 import PageMeta from "../components/common/PageMeta";
 import { useAuth } from '../context/AuthContext';
-import { listenToUserLeagues, League } from '../utils/leagues';
-import { calculateCurrentNFLWeek } from '../utils/nflWeekHelper';
+import { useLeagueContext } from '../context/LeagueContext';
 import { Suspense, lazy } from 'react';
 import PullToRefresh from '../components/ui/PullToRefresh';
 import CachedDataIndicator from '../components/common/CachedDataIndicator';
+import InlineLeagueSelector from '../components/common/InlineLeagueSelector';
+import InlineWeekSelector from '../components/common/InlineWeekSelector';
 const WeeklyTips = lazy(() => import('../components/gamecenter/WeeklyTips'));
 const ProphetLeaderboard = lazy(() => import('../components/gamecenter/ProphetLeaderboard').then(m => ({ default: m.ProphetLeaderboard })));
-import { MAX_NFL_WEEKS, APP_CONFIG } from '../config/appConfig';
-import Select from '../components/form/Select';
+import { APP_CONFIG } from '../config/appConfig';
 import { useTipsStore } from '../store/tipsStore';
 import { SkeletonPage } from '../components/ui/skeleton/SkeletonLoader';
 import ComponentCard from '../components/common/ComponentCard';
@@ -18,13 +18,17 @@ import { Link } from 'react-router';
 
 export default function TipsPage() {
   const { user, loading: authLoading } = useAuth();
-  const [leagues, setLeagues] = useState<League[]>([]);
-  const [leaguesLoading, setLeaguesLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
   
-  // Local state for route handling
-  const [selectedWeek, setSelectedWeek] = useState<number>(calculateCurrentNFLWeek());
-  const [selectedLeagueId, setSelectedLeagueId] = useState<string | null>(null);
+  // Use global league context
+  const {
+    leagues,
+    leaguesLoading,
+    leaguesError,
+    selectedLeagueId,
+    selectedLeague,
+    effectiveWeek,
+    setSelectedLeagueId
+  } = useLeagueContext();
   
   // Zustand store
   const { 
@@ -50,38 +54,20 @@ export default function TipsPage() {
 
   // Initialize store context when we have all required data
   useEffect(() => {
-    if (selectedLeagueId && selectedWeek && currentSeason && !isPageLoading) {
-      setContext(selectedLeagueId, selectedWeek, currentSeason);
+    if (selectedLeagueId && effectiveWeek && currentSeason && !isPageLoading) {
+      setContext(selectedLeagueId, effectiveWeek, currentSeason);
     }
-  }, [selectedLeagueId, selectedWeek, currentSeason, isPageLoading, setContext]);
+  }, [selectedLeagueId, effectiveWeek, currentSeason, isPageLoading, setContext]);
 
+  // Auto-select first tips-enabled league when leagues change
   useEffect(() => {
-    if (user?.uid) {
-      setLeaguesLoading(true);
-      const unsubscribe = listenToUserLeagues(
-        user.uid,
-        (fetchedLeagues) => {
-          setLeagues(fetchedLeagues);
-          setLeaguesLoading(false);
-          
-          // Auto-select first tips-enabled league if none selected
-          const tipsEnabledLeagues = fetchedLeagues.filter(league => league.enableWeeklyTips);
-          if (!selectedLeagueId && tipsEnabledLeagues.length > 0) {
-            setSelectedLeagueId(tipsEnabledLeagues[0].id);
-          }
-        },
-        (err) => {
-          console.error("Error fetching leagues:", err);
-          setError("Failed to load leagues.");
-          setLeaguesLoading(false);
-        }
-      );
-      return () => unsubscribe();
-    } else if (!authLoading) {
-      setLeagues([]);
-      setLeaguesLoading(false);
+    if (!selectedLeagueId && leagues.length > 0) {
+      const tipsEnabledLeagues = leagues.filter(league => league.enableWeeklyTips);
+      if (tipsEnabledLeagues.length > 0) {
+        setSelectedLeagueId(tipsEnabledLeagues[0].id);
+      }
     }
-  }, [user, authLoading, selectedLeagueId]);
+  }, [leagues, selectedLeagueId, setSelectedLeagueId]);
 
   // Main page loading logic (similar to LineupPage)
   useEffect(() => {
@@ -100,13 +86,13 @@ export default function TipsPage() {
     if (leaguesLoading) {
       setIsPageLoading(true);
       setPageError(null);
-    } else if (error) {
-      setPageError(error);
+    } else if (leaguesError) {
+      setPageError(leaguesError);
       setIsPageLoading(false);
     } else if (leagues.length === 0) {
       setPageError(null); // Will show "no leagues" UI instead
       setIsPageLoading(false);
-    } else if (selectedLeagueId && selectedWeek >= 1 && currentSeason) {
+    } else if (selectedLeagueId && effectiveWeek >= 1 && currentSeason) {
       setIsPageLoading(false);
       setPageError(null);
     } else {
@@ -117,29 +103,18 @@ export default function TipsPage() {
     authLoading, 
     user?.uid, 
     leaguesLoading, 
-    error, 
+    leaguesError, 
     leagues.length, 
     selectedLeagueId, 
-    selectedWeek, 
+    effectiveWeek, 
     currentSeason
   ]);
 
   // Filter leagues that have tips enabled
   const tipsEnabledLeagues = leagues.filter(league => league.enableWeeklyTips);
   
-  // Get the currently selected league
-  const selectedLeague = tipsEnabledLeagues.find(league => league.id === selectedLeagueId);
-
-  const handleWeekChange = (newWeekValue: string) => {
-    const newWeek = parseInt(newWeekValue, 10);
-    if (newWeek >= 1 && newWeek <= MAX_NFL_WEEKS) {
-      setSelectedWeek(newWeek);
-    }
-  };
-
-  const handleLeagueChange = (newLeagueId: string) => {
-    setSelectedLeagueId(newLeagueId);
-  };
+  // Use the selected league from global context, but ensure it has tips enabled
+  const selectedTipsLeague = selectedLeague && selectedLeague.enableWeeklyTips ? selectedLeague : null;
 
   // Loading state (similar to LineupPage)
   if (isPageLoading) {
@@ -245,18 +220,6 @@ export default function TipsPage() {
     return null; // Will re-render with selected league
   }
 
-  // Generate week options
-  const weekOptions = Array.from({ length: MAX_NFL_WEEKS }, (_, i) => ({
-    value: (i + 1).toString(),
-    label: `Week ${i + 1}`,
-  }));
-
-  // Generate league options
-  const leagueOptions = tipsEnabledLeagues.map(league => ({
-    value: league.id,
-    label: league.name,
-  }));
-
   return (
     <>
       <PageMeta
@@ -264,57 +227,40 @@ export default function TipsPage() {
         description="Make your weekly NFL game predictions"
       />
       
-      {error && (
+      {leaguesError && (
         <div className="container mx-auto px-4 mb-6">
           <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-            <p className="text-red-700 dark:text-red-300 text-sm">{error}</p>
+            <p className="text-red-700 dark:text-red-300 text-sm">{leaguesError}</p>
           </div>
         </div>
       )}
 
       <PullToRefresh onRefresh={async () => { window.location.reload(); }}> 
       <div className="container mx-auto px-4 py-6 pb-content-safe">
-        {/* Modern Header - Matching LineupPage */}
+        {/* Header with Inline Selectors */}
         <div className="mb-6">
-          <div className="flex flex-col gap-3">
-            {/* Title and Week Info */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
-                  Game Tips
-                </h1>
-                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-0.5">
-                  Week {selectedWeek} • {selectedLeague?.name || 'Select League'}
-                </p>
-              </div>
-              {selectedLeague && (
-                <CachedDataIndicator queryKey={['tips', selectedLeague.id, selectedWeek.toString()]} />
-              )}
+          {/* Desktop: Show page title */}
+          <div className="hidden md:flex items-center justify-between mb-2">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+              Game Tips
+            </h1>
+            {selectedTipsLeague && (
+              <CachedDataIndicator queryKey={['tips', selectedTipsLeague.id, effectiveWeek.toString()]} />
+            )}
+          </div>
+          
+          {/* Mobile & Desktop: Inline selectors */}
+          <div className="flex items-center justify-between">
+            <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
+              <InlineLeagueSelector />
+              <span>•</span>
+              <InlineWeekSelector />
             </div>
-            
-            {/* Selectors Row */}
-            <div className="flex gap-2">
-              {/* League Selector - Takes 2/3 width */}
-              {leagueOptions.length > 1 && (
-                <div className="flex-[2] min-w-0">
-                  <Select
-                    defaultValue={selectedLeagueId || ''}
-                    onChange={handleLeagueChange}
-                    options={leagueOptions}
-                    placeholder="Select League"
-                  />
-                </div>
+            {/* Mobile: Show cached data indicator */}
+            <div className="md:hidden">
+              {selectedTipsLeague && (
+                <CachedDataIndicator queryKey={['tips', selectedTipsLeague.id, effectiveWeek.toString()]} />
               )}
-              
-              {/* Week Selector - Takes 1/3 width or full width if no league selector */}
-              <div className={`${leagueOptions.length > 1 ? 'flex-1' : 'w-full max-w-32'} min-w-0`}>
-                <Select
-                  defaultValue={selectedWeek.toString()}
-                  onChange={handleWeekChange}
-                  options={weekOptions}
-                  placeholder="Week"
-                />
-              </div>
             </div>
           </div>
         </div>
@@ -346,17 +292,17 @@ export default function TipsPage() {
         </div>
 
         {/* Content */}
-        {selectedLeague && (
+        {selectedTipsLeague && (
           <Suspense fallback={<SkeletonPage type="dashboard" />}> 
             {activeTab === 'tips' ? (
               <WeeklyTips
-                leagueId={selectedLeague.id}
-                week={selectedWeek}
+                leagueId={selectedTipsLeague.id}
+                week={effectiveWeek}
                 season={currentSeason}
               />
             ) : (
               <ProphetLeaderboard
-                leagueId={selectedLeague.id}
+                leagueId={selectedTipsLeague.id}
                 season={currentSeason}
               />
             )}

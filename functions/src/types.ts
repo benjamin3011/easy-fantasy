@@ -287,6 +287,10 @@ export interface NotificationPreferences {
     // Personal Achievements
     achievementAlerts: boolean;
     
+    // Auto-Assistant Features
+    autoLineupAlerts: boolean; // Notify when auto-lineup is applied
+    autoTipsAlerts: boolean;   // Notify when auto-tips are applied
+    
     // System
     enabled: boolean; // Master toggle
     quietHours: {

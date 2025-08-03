@@ -1,10 +1,10 @@
 import { useState, useEffect, Suspense, lazy } from 'react';
 import PageMeta from "../components/common/PageMeta";
 import { useAuth } from '../context/AuthContext';
-import { listenToUserLeagues, League } from '../utils/leagues';
+import { useLeagueContext } from '../context/LeagueContext';
 import { checkLineupCompletionStatus, fetchWeeklySchedule, FirestoreWeeklySchedule } from '../services/lineupFetchingService';
+import { League } from '../utils/leagues';
 import { APP_CONFIG } from '../config/appConfig';
-import { calculateCurrentNFLWeek } from '../utils/nflWeekHelper';
 
 import { SkeletonPage } from '../components/ui/skeleton/SkeletonLoader';
 import PullToRefresh from '../components/ui/PullToRefresh';
@@ -14,15 +14,22 @@ import OnboardingFlow from '../components/onboarding/OnboardingFlow';
 import QuickPerformanceCard from '../components/analytics/QuickPerformanceCard';
 import CaptainTrackerCard from '../components/analytics/CaptainTrackerCard';
 import ResponsiveHomeTabs from '../components/dashboard/ResponsiveHomeTabs';
+import InlineLeagueSelector from '../components/common/InlineLeagueSelector';
+import InlineWeekSelector from '../components/common/InlineWeekSelector';
 
 const UnifiedGamesWidget = lazy(() => import('../components/dashboard/UnifiedGamesWidget'));
 
 
 export default function HomePage() {
   const { user, loading: authLoading } = useAuth();
-  const [leagues, setLeagues] = useState<League[]>([]);
-  const [leaguesLoading, setLeaguesLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    leagues,
+    leaguesLoading,
+    leaguesError,
+    selectedLeagueId,
+    effectiveWeek
+  } = useLeagueContext();
+  
   const [lineupStatus, setLineupStatus] = useState({
     lineupsSet: 0,
     lineupsComplete: 0,
@@ -33,9 +40,6 @@ export default function HomePage() {
   
   // Onboarding state
   const [showOnboarding, setShowOnboarding] = useState(false);
-
-  const currentNflWeek = calculateCurrentNFLWeek();
-  const primaryLeague = leagues[0] || null;
 
   // Check if user should see onboarding
   useEffect(() => {
@@ -56,47 +60,26 @@ export default function HomePage() {
     const loadSchedule = async () => {
       try {
         const season = APP_CONFIG.CURRENT_NFL_SEASON;
-        const data = await fetchWeeklySchedule(season, currentNflWeek);
+        const data = await fetchWeeklySchedule(season, effectiveWeek);
         setScheduleData(data);
       } catch (err) {
         console.error("Error fetching weekly schedule:", err);
       }
     };
 
-    if (currentNflWeek > 0) {
+    if (effectiveWeek > 0) {
       loadSchedule();
     }
-  }, [currentNflWeek]);
+  }, [effectiveWeek]);
 
+  // Check lineup status when leagues change
   useEffect(() => {
-    if (user?.uid) {
-      setLeaguesLoading(true);
-      const unsubscribe = listenToUserLeagues(
-        user.uid,
-        (fetchedLeagues) => {
-          setLeagues(fetchedLeagues);
-          setLeaguesLoading(false);
-          
-          if (fetchedLeagues.length > 0) {
-            checkLineupForAllLeagues(fetchedLeagues, user.uid);
-          } else {
-            setLineupStatus({ lineupsSet: 0, lineupsComplete: 0, totalLeagues: 0, isLoading: false });
-          }
-        },
-        (err) => {
-          console.error("Error fetching leagues:", err);
-          setError("Failed to load leagues.");
-          setLeaguesLoading(false);
-          setLineupStatus({ lineupsSet: 0, lineupsComplete: 0, totalLeagues: 0, isLoading: false });
-        }
-      );
-      return () => unsubscribe();
-    } else if (!authLoading) {
-      setLeagues([]);
-      setLeaguesLoading(false);
+    if (user?.uid && leagues.length > 0) {
+      checkLineupForAllLeagues(leagues, user.uid);
+    } else if (!leaguesLoading) {
       setLineupStatus({ lineupsSet: 0, lineupsComplete: 0, totalLeagues: 0, isLoading: false });
     }
-  }, [user, authLoading]);
+  }, [user?.uid, leagues, effectiveWeek, leaguesLoading]);
 
   const checkLineupForAllLeagues = async (leagues: League[], userId: string) => {
     setLineupStatus(prev => ({ ...prev, isLoading: true }));
@@ -104,7 +87,7 @@ export default function HomePage() {
     try {
       const season = APP_CONFIG.CURRENT_NFL_SEASON;
       const lineupStatuses = await Promise.all(
-        leagues.map(league => checkLineupCompletionStatus(userId, league.id, currentNflWeek, season))
+        leagues.map(league => checkLineupCompletionStatus(userId, league.id, effectiveWeek, season))
       );
       
       const lineupsSet = lineupStatuses.filter(status => status.exists).length;
@@ -142,7 +125,7 @@ export default function HomePage() {
 
 
 
-  if (authLoading || (leaguesLoading && !leagues.length)) {
+  if (authLoading || leaguesLoading) {
     return <SkeletonPage type="dashboard" />;
   }
 
@@ -154,7 +137,7 @@ export default function HomePage() {
       
       try {
         const season = APP_CONFIG.CURRENT_NFL_SEASON;
-        const data = await fetchWeeklySchedule(season, currentNflWeek);
+        const data = await fetchWeeklySchedule(season, effectiveWeek);
         setScheduleData(data);
       } catch (err) {
         console.error("Error refreshing schedule:", err);
@@ -170,24 +153,35 @@ export default function HomePage() {
       />
       
       <PullToRefresh onRefresh={handleRefresh}>
-        {error && (
+        {leaguesError && (
           <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-            <p className="text-red-700 dark:text-red-300 text-sm">{error}</p>
+            <p className="text-red-700 dark:text-red-300 text-sm">{leaguesError}</p>
           </div>
         )}
 
         <div className="container mx-auto px-4 py-6 pb-content-safe">
           {/* Header Section */}
           <div className="mb-6">
-            <div className="flex items-center justify-between mb-2">
+            {/* Desktop: Show page title */}
+            <div className="hidden md:flex items-center justify-between mb-2">
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                 Dashboard
               </h1>
               {user?.uid && <CachedDataIndicator queryKey={['userLeagues', user.uid]} />}
             </div>
-            <p className="text-gray-600 dark:text-gray-300">
-              Welcome back! Here's your fantasy football overview.
-            </p>
+            
+            {/* Mobile & Desktop: Inline selectors */}
+            <div className="flex items-center justify-between">
+              <div className="text-gray-600 dark:text-gray-300 text-sm flex items-center gap-2">
+                <InlineLeagueSelector />
+                <span>•</span>
+                <InlineWeekSelector />
+              </div>
+              {/* Mobile: Show cached data indicator */}
+              <div className="md:hidden">
+                {user?.uid && <CachedDataIndicator queryKey={['userLeagues', user.uid]} />}
+              </div>
+            </div>
           </div>
 
           {/* Mobile: Responsive Tabs (< 768px) */}
@@ -200,7 +194,7 @@ export default function HomePage() {
                   component: (
                     <div className="space-y-4">
                       <Suspense fallback={<div className="space-y-3">{Array(5).fill(0).map((_, i) => <div key={i} className="h-16 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />)}</div>}> 
-                        <UnifiedGamesWidget currentNflWeek={currentNflWeek} isMobileView={true} />
+                        <UnifiedGamesWidget currentNflWeek={effectiveWeek} isMobileView={true} />
                       </Suspense>
                     </div>
                   )
@@ -213,23 +207,23 @@ export default function HomePage() {
                       {/* Lineup Status */}
                       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
                         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                          Week {currentNflWeek} Status
+                          Week {effectiveWeek} Status
                         </h2>
                         <LineupStatusKPI
                           lineupsSet={lineupStatus.lineupsSet}
                           lineupsComplete={lineupStatus.lineupsComplete}
                           totalLeagues={lineupStatus.totalLeagues}
                           isLoading={lineupStatus.isLoading}
-                          currentWeek={currentNflWeek}
+                          currentWeek={effectiveWeek}
                           nextLockTime={nextGameTime}
                         />
                       </div>
 
                       {/* Quick Performance Analytics */}
-                      <QuickPerformanceCard leagueId={primaryLeague?.id} />
+                      <QuickPerformanceCard leagueId={selectedLeagueId || undefined} />
                       
                       {/* Captain Tracker Analytics */}
-                      <CaptainTrackerCard leagueId={primaryLeague?.id} />
+                      <CaptainTrackerCard leagueId={selectedLeagueId || undefined} />
                     </div>
                   )
                 }
@@ -247,20 +241,20 @@ export default function HomePage() {
                 {/* Lineup Status */}
                 <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                    Week {currentNflWeek} Status
+                    Week {effectiveWeek} Status
                   </h2>
                   <LineupStatusKPI
                     lineupsSet={lineupStatus.lineupsSet}
                     lineupsComplete={lineupStatus.lineupsComplete}
                     totalLeagues={lineupStatus.totalLeagues}
                     isLoading={lineupStatus.isLoading}
-                    currentWeek={currentNflWeek}
+                    currentWeek={effectiveWeek}
                     nextLockTime={nextGameTime}
                   />
                 </div>
 
                 {/* Quick Performance Analytics */}
-                <QuickPerformanceCard leagueId={primaryLeague?.id} />
+                <QuickPerformanceCard leagueId={selectedLeagueId || undefined} />
               </div>
 
               {/* Bottom Section - Games & Captain Analytics */}
@@ -268,11 +262,11 @@ export default function HomePage() {
                 
                 {/* Games & Live Scoring */}
                 <Suspense fallback={<div className="h-96 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />}> 
-                  <UnifiedGamesWidget currentNflWeek={currentNflWeek} />
+                  <UnifiedGamesWidget currentNflWeek={effectiveWeek} />
                 </Suspense>
 
                 {/* Captain Tracker Analytics */}
-                <CaptainTrackerCard leagueId={primaryLeague?.id} />
+                <CaptainTrackerCard leagueId={selectedLeagueId || undefined} />
               </div>
             </div>
           </div>

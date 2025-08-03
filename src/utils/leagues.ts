@@ -15,12 +15,14 @@ import {
   toggleLeagueVisibilityCallable,
   renameLeagueCallable,
   updateLeagueCaptainSettingsCallable,
-  updateLeagueWeeklyTipsSettingsCallable
+  updateLeagueWeeklyTipsSettingsCallable,
+  updateLeagueAutoSettingsCallable
 } from '../firebase/callables';
 import { 
   CreateLeaguePayload, 
   UpdateLeagueCaptainSettingsPayload,
   UpdateLeagueWeeklyTipsSettingsPayload,
+  UpdateLeagueAutoSettingsPayload,
   GenericResult 
 } from '../types/functions';
 
@@ -52,6 +54,12 @@ export interface League {
   enableCaptainFeature?: boolean;
   captainPointMultiplier?: number;
   enableWeeklyTips?: boolean;
+  autoLineup?: {
+    enabled: boolean;
+  };
+  autoTips?: {
+    enabled: boolean;
+  };
 }
 
 // --- Callable Function Wrappers (WRITE OPERATIONS) ---
@@ -117,6 +125,14 @@ export async function updateLeagueWeeklyTipsSettings(
   return result.data; // Assuming result.data is GenericResult
 }
 
+// New service function to update league auto-settings
+export async function updateLeagueAutoSettings(
+  payload: UpdateLeagueAutoSettingsPayload
+): Promise<GenericResult> {
+  const result = await updateLeagueAutoSettingsCallable(payload);
+  return result.data; // Assuming result.data is GenericResult
+}
+
 // --- Direct Firestore Access (READ OPERATIONS) ---
 
 const LEAGUES_COLLECTION = collection(db, "leagues");
@@ -135,7 +151,9 @@ function mapLeagueData(docSnap: QueryDocumentSnapshot | import("@firebase/firest
         memberUids: data.memberUids as string[], createdAt: createdAt,
         enableCaptainFeature: data.enableCaptainFeature,
         captainPointMultiplier: data.captainPointMultiplier,
-        enableWeeklyTips: data.enableWeeklyTips
+        enableWeeklyTips: data.enableWeeklyTips,
+        autoLineup: data.autoLineup,
+        autoTips: data.autoTips
     };
 }
 

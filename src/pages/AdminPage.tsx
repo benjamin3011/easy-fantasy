@@ -13,7 +13,6 @@ import { httpsCallable } from 'firebase/functions';
 import { functions } from '../firebase/firebase';
 import Button from '../components/ui/button/Button';
 import PageMeta from '../components/common/PageMeta';
-import PageBreadcrumb from '../components/common/PageBreadCrumb';
 import Alert from "../components/ui/alert/Alert";
 import ComponentCard from "../components/common/ComponentCard";
 import { APP_CONFIG } from '../config/appConfig';
@@ -532,29 +531,44 @@ export default function AdminPage() {
   // Admin Page Content
   return (
     <>
-      <div>
       <PageMeta title="Admin Panel | Easy Fantasy" description='Admin control panel for Easy Fantasy application.' />
-      <PageBreadcrumb pageTitle="Admin Panel" />
-      <div className="space-y-5 sm:space-y-6 mb-4">
-        {/* General Feedback Area */}
-        {message && (
-          <Alert
-            variant="success"
-            title="Success Message"
-            message={message}
-            showLink={false}
-          />
-        )}
-        {error && (
-          <Alert
-            variant="error"
-            title="Error Message"
-            message={error}
-            showLink={false}
-          />
-        )}
-        
-      </div>
+      
+      <div className="container mx-auto px-4 py-6 pb-content-safe">
+        {/* Header Section - Consistent with other pages */}
+        <div className="mb-6">
+          {/* Desktop: Show page title */}
+          <div className="hidden md:flex items-center justify-between mb-2">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Admin Panel
+            </h1>
+          </div>
+          
+          {/* Subtitle for both mobile and desktop */}
+          <p className="text-gray-600 dark:text-gray-400 text-sm">
+            Administrative controls for Easy Fantasy application
+          </p>
+        </div>
+
+        <div className="space-y-5 sm:space-y-6 mb-4">
+          {/* General Feedback Area */}
+          {message && (
+            <Alert
+              variant="success"
+              title="Success Message"
+              message={message}
+              showLink={false}
+            />
+          )}
+          {error && (
+            <Alert
+              variant="error"
+              title="Error Message"
+              message={error}
+              showLink={false}
+            />
+          )}
+          
+        </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <div className="space-y-5 sm:space-y-6">

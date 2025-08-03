@@ -11,7 +11,8 @@ import {
   RenameLeaguePayload, /* Uses GenericResult */
   UpdateLeagueCaptainSettingsPayload, // Import the new payload type
   CreateWeeklyTipsPayload,
-  UpdateLeagueWeeklyTipsSettingsPayload
+  UpdateLeagueWeeklyTipsSettingsPayload,
+  UpdateLeagueAutoSettingsPayload
 } from '../types/functions';
 
 const app = getApp(); // Get the default Firebase app instance
@@ -42,6 +43,9 @@ export const updateLeagueWeeklyTipsSettingsCallable = httpsCallable<UpdateLeague
 
 // Create Weekly Tips Poll
 export const createWeeklyTipsCallable = httpsCallable<CreateWeeklyTipsPayload, GenericResult>(functions, 'createWeeklyTips');
+
+// Auto-settings management
+export const updateLeagueAutoSettingsCallable = httpsCallable<UpdateLeagueAutoSettingsPayload, GenericResult>(functions, 'updateLeagueAutoSettings');
 
 // Add other callable functions here as needed
 // export const anotherCallable = httpsCallable<InputType, OutputType>(functions, 'anotherFunctionName'); 

@@ -123,7 +123,7 @@ const MobileBottomTabBar: React.FC = () => {
       >
         
         {/* Tab content */}
-        <div className="relative flex items-center justify-around px-2 py-2 h-16">
+        <div className="relative flex items-center justify-around px-2 py-2 h-14">
           {visibleTabs.map((tab) => {
             const active = isActive(tab.path);
             return (
@@ -160,9 +160,9 @@ const MobileBottomTabBar: React.FC = () => {
                   </div>
                 </div>
                 
-                {/* Label */}
+                {/* Label - Hidden on mobile for cleaner look like NFL app */}
                 <span className={`
-                  text-xs font-medium mt-1
+                  hidden text-xs font-medium mt-1
                   transition-all duration-200 ease-out
                   ${active 
                     ? 'text-blue-500 dark:text-blue-400' 
@@ -185,7 +185,7 @@ const MobileBottomTabBar: React.FC = () => {
       {/* Bottom padding spacer for content */}
       <div 
         className="md:hidden"
-        style={{ height: `${64 + Math.max(safeAreaBottom, 8)}px` }}
+        style={{ height: `${56 + Math.max(safeAreaBottom, 8)}px` }}
       ></div>
     </>
   );

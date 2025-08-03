@@ -57,6 +57,12 @@ export interface CreateLeaguePayload {
   enableCaptainFeature?: boolean;
   captainPointMultiplier?: number;
   enableWeeklyTips?: boolean;
+  autoLineup?: {
+    enabled: boolean;
+  };
+  autoTips?: {
+    enabled: boolean;
+  };
 }
 export interface CreateLeagueResult {
   id: string; // League ID
@@ -114,4 +120,15 @@ export interface CreateWeeklyTipsPayload {
   leagueId: string;
   week: number;
   season?: number;
+}
+
+// Payload for updateLeagueAutoSettings
+export interface UpdateLeagueAutoSettingsPayload {
+  leagueId: string;
+  autoLineup?: {
+    enabled: boolean;
+  };
+  autoTips?: {
+    enabled: boolean;
+  };
 } 

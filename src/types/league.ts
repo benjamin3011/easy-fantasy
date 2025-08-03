@@ -18,4 +18,14 @@ export interface League {
   
   // Weekly tipping feature
   enableWeeklyTips?: boolean; // Optional for backward compatibility
+  
+  // Auto-lineup feature (uses Quick Pick logic, 1 hour before games)
+  autoLineup?: {
+    enabled: boolean;
+  };
+  
+  // Auto-tips feature (follows betting favorites, 1 hour before games)
+  autoTips?: {
+    enabled: boolean;
+  };
 } 

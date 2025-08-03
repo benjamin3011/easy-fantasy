@@ -125,14 +125,19 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
         </div>
 
         {/* Right Column - Captain Selector & Summary */}
-        <div className="lg:col-span-1 space-y-6">
-          <SimpleLineupSummary 
-            enableCaptainFeature={enableCaptainFeature}
-            captainPointMultiplier={captainPointMultiplier}
-          />
+        <div className="lg:col-span-1 flex flex-col gap-6">
+          {/* Mobile: Captain First, Desktop: Summary First */}
           {enableCaptainFeature && (
-            <SimpleCaptainSelector captainPointMultiplier={captainPointMultiplier} />
+            <div className="order-1 lg:order-2">
+              <SimpleCaptainSelector captainPointMultiplier={captainPointMultiplier} />
+            </div>
           )}
+          <div className="order-2 lg:order-1">
+            <SimpleLineupSummary 
+              enableCaptainFeature={enableCaptainFeature}
+              captainPointMultiplier={captainPointMultiplier}
+            />
+          </div>
         </div>
       </div>
 

@@ -1,13 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { useSidebar } from "../context/SidebarContext";
 import { ThemeToggleButton } from "../components/common/ThemeToggleButton";
 import NotificationDropdown from "../components/header/NotificationDropdown";
 import UserDropdown from "../components/header/UserDropdown";
 
+// Route to page title mapping
+const getPageTitle = (pathname: string): string => {
+  if (pathname === '/') return 'Dashboard';
+  if (pathname === '/lineup' || pathname.startsWith('/leagues/') && pathname.includes('/lineup/')) return 'Lineup Builder';
+  if (pathname === '/tips') return 'Game Tips';
+  if (pathname === '/leagues') return 'Leagues';
+  if (pathname === '/profile') return 'Profile';
+  if (pathname === '/gamecenter') return 'Game Center';
+  if (pathname.startsWith('/leagues/') && pathname.includes('/detail')) return 'League Details';
+  if (pathname === '/admin') return 'Admin';
+  
+  // Default fallback
+  return 'Easy Fantasy';
+};
+
 const AppHeader: React.FC = () => {
   const [isApplicationMenuOpen, setApplicationMenuOpen] = useState(false);
+  const location = useLocation();
 
   const { isMobileOpen, toggleSidebar, toggleMobileSidebar } = useSidebar();
 
@@ -85,18 +101,26 @@ const AppHeader: React.FC = () => {
             {/* Cross Icon */}
           </button>
 
-          <Link to="/" className="flex-1 text-center lg:hidden">
+          {/* Mobile: Logo on left, Page title in center */}
+          <Link to="/" className="lg:hidden">
             <img
-              className="dark:hidden mx-auto h-8"
+              className="dark:hidden h-8"
               src="/images/logo/logo-new.svg"
               alt="Logo"
             />
             <img
-              className="hidden dark:block mx-auto h-8"
+              className="hidden dark:block h-8"
               src="/images/logo/logo-new-dark.svg"
               alt="Logo"
             />
           </Link>
+          
+          {/* Mobile: Dynamic page title in center */}
+          <div className="flex-1 text-center lg:hidden">
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
+              {getPageTitle(location.pathname)}
+            </h1>
+          </div>
 
           <button
             onClick={toggleApplicationMenu}

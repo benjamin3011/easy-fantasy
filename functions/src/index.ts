@@ -43,4 +43,7 @@ export * from './triggers';
 // Game Tips/Prophet Points
 export * from './gameTips';
 
+// Auto-Assistant Functions
+export * from './autoAssistant';
+
 console.log("Firebase Functions initialized and exported."); // Log on deploy/cold start

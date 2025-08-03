@@ -951,6 +951,16 @@ span.flatpickr-weekday,
   }
 }
 
+/* Scrollbar utilities */
+.scrollbar-hide {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Webkit */
+}
+
 /* Additional iOS PWA specific styles */
 @supports (-webkit-touch-callout: none) {
   /* iOS specific styles */

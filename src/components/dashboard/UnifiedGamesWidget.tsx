@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { listenToUserLeagues, League } from '../../utils/leagues';
+import { useLeagueContext } from '../../context/LeagueContext';
 import { 
   listenToStoredWeeklyLineup, 
   StoredLineupData, 
@@ -28,6 +28,8 @@ interface PlayerInGame {
   isCaptain: boolean;
   currentPoints: number;
   gameStatus: 'live' | 'upcoming' | 'final';
+  type: 'player' | 'team';
+  displayName: string; // For team positions like "DAL Run"
 }
 
 interface GameWithPlayers extends GameInfoFromSchedule {
@@ -55,33 +57,16 @@ const formatGameTime = (epochInSeconds: number | string): string => {
 
 const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek, isMobileView = false }) => {
   const { user } = useAuth();
+  const { selectedLeagueId } = useLeagueContext();
   const [gamesWithPlayers, setGamesWithPlayers] = useState<GameWithPlayers[]>([]);
-  const [leagues, setLeagues] = useState<League[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
 
-  // Load leagues
-  useEffect(() => {
-    if (user?.uid) {
-      const unsubscribe = listenToUserLeagues(
-        user.uid,
-        (fetchedLeagues) => {
-          setLeagues(fetchedLeagues);
-        },
-        (error) => {
-          console.error('Error fetching leagues:', error);
-          setError('Failed to load leagues');
-        }
-      );
-      return () => unsubscribe();
-    }
-  }, [user?.uid]);
-
   // Load schedule and combine with user data
   useEffect(() => {
     const loadGamesData = async () => {
-      if (!user?.uid || leagues.length === 0) return;
+      if (!user?.uid || !selectedLeagueId) return;
       
       setIsLoading(true);
       setError(null);
@@ -96,53 +81,49 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
           return;
         }
 
-        // Get user lineups from all leagues
-        const userLineupData: Record<string, { player: SelectableEntity; isCaptain: boolean; leagueId: string; position: string }> = {};
+        // Get user lineup from selected league only
+        const userLineupData: Record<string, { player: SelectableEntity; isCaptain: boolean; position: string; type: 'player' | 'team' }> = {};
         
-        const lineupPromises = leagues.map(league => 
-          new Promise<void>((resolve) => {
-            listenToStoredWeeklyLineup(
-              user.uid,
-              league.id,
-              currentNflWeek,
-              async (lineupData: StoredLineupData) => {
-                if (lineupData.picks) {
-                  for (const [positionKey, pick] of Object.entries(lineupData.picks)) {
-                    if (pick && pick.type === 'player') {
-                      const key = `${pick.id}_${pick.type}`;
+        await new Promise<void>((resolve) => {
+          listenToStoredWeeklyLineup(
+            user.uid,
+            selectedLeagueId,
+            currentNflWeek,
+            async (lineupData: StoredLineupData) => {
+              if (lineupData.picks) {
+                for (const [positionKey, pick] of Object.entries(lineupData.picks)) {
+                  if (pick) {
+                    const key = `${pick.id}_${pick.type}`;
+                    
+                    if (!userLineupData[key]) {
+                      let entity: SelectablePlayer | SelectableTeam | null = null;
                       
-                      if (!userLineupData[key]) {
-                        let entity: SelectablePlayer | SelectableTeam | null = null;
-                        
-                        if (pick.type === 'player') {
-                          entity = await fetchSelectablePlayerById(pick.id);
-                        } else {
-                          entity = await fetchSelectableTeamById(pick.id, positionKey as PositionKey);
-                        }
-                        
-                        if (entity) {
-                          userLineupData[key] = {
-                            player: entity,
-                            isCaptain: lineupData.captainPlayerId === pick.id,
-                            leagueId: league.id,
-                            position: pick.type === 'player' ? (entity as SelectablePlayer).position : positionKey
-                          };
-                        }
+                      if (pick.type === 'player') {
+                        entity = await fetchSelectablePlayerById(pick.id);
+                      } else {
+                        entity = await fetchSelectableTeamById(pick.id, positionKey as PositionKey);
+                      }
+                      
+                      if (entity) {
+                        userLineupData[key] = {
+                          player: entity,
+                          isCaptain: lineupData.captainPlayerId === pick.id,
+                          position: pick.type === 'player' ? (entity as SelectablePlayer).position : positionKey,
+                          type: pick.type
+                        };
                       }
                     }
                   }
                 }
-                resolve();
-              },
-              (error) => {
-                console.error(`Error fetching lineup for league ${league.id}:`, error);
-                resolve();
               }
-            );
-          })
-        );
-
-        await Promise.all(lineupPromises);
+              resolve();
+            },
+            (error) => {
+              console.error(`Error fetching lineup for league ${selectedLeagueId}:`, error);
+              resolve();
+            }
+          );
+        });
 
         // Process each game
         const processedGames = await Promise.all(
@@ -152,8 +133,8 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
             const playersInGame: PlayerInGame[] = [];
             
             for (const data of Object.values(userLineupData)) {
-              const player = data.player;
-              if (gameTeams.includes(player.teamAbbreviation)) {
+              const entity = data.player;
+              if (gameTeams.includes(entity.teamAbbreviation)) {
                 // Get live stats if game is active
                 let currentPoints = 0;
                 const gameTime = new Date(Number(game.gameTime_epoch) * 1000);
@@ -162,24 +143,42 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
                 
                 if (isLive || gameTime < now) {
                   try {
-                    const stats = await fetchDetailedGameStatsForEntity(player.id, 'player', game.gameID);
+                    const stats = await fetchDetailedGameStatsForEntity(entity.id, data.type, game.gameID);
                     // For player stats, use the fantasyPoints property
                     if (stats && 'fantasyPoints' in stats) {
                       currentPoints = stats.fantasyPoints || 0;
                     }
                   } catch (error) {
-                    console.error(`Error fetching stats for ${player.name}:`, error);
+                    console.error(`Error fetching stats for ${entity.name}:`, error);
                   }
                 }
 
+                // Create display name
+                let displayName = entity.name;
+                if (data.type === 'team') {
+                  const positionMap: Record<string, string> = {
+                    'PassingOffense': 'Pass',
+                    'RushingOffense': 'Run', 
+                    'Defense': 'DEF',
+                    'SpecialTeams': 'ST'
+                  };
+                  const shortPosition = positionMap[data.position] || data.position;
+                  displayName = `${entity.teamAbbreviation} ${shortPosition}`;
+                } else {
+                  // For players, show position after name
+                  displayName = `${entity.name} (${(entity as SelectablePlayer).position})`;
+                }
+
                 playersInGame.push({
-                  id: player.id,
-                  name: player.name,
+                  id: entity.id,
+                  name: entity.name,
                   position: data.position,
-                  team: player.teamAbbreviation,
+                  team: entity.teamAbbreviation,
                   isCaptain: data.isCaptain,
                   currentPoints,
-                  gameStatus: isLive ? 'live' : (gameTime > now ? 'upcoming' : 'final')
+                  gameStatus: isLive ? 'live' : (gameTime > now ? 'upcoming' : 'final'),
+                  type: data.type,
+                  displayName
                 });
               }
             }
@@ -232,10 +231,10 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
       }
     };
 
-    if (currentNflWeek > 0 && leagues.length > 0) {
+    if (currentNflWeek > 0 && selectedLeagueId) {
       loadGamesData();
     }
-  }, [currentNflWeek, user?.uid, leagues]);
+  }, [currentNflWeek, user?.uid, selectedLeagueId]);
 
   const getGameStatusBadge = (game: GameWithPlayers) => {
     const gameTime = new Date(Number(game.gameTime_epoch) * 1000);
@@ -328,13 +327,26 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
                       <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">
-                        👤 Your Players ({game.userPlayers.length})
+                        👤 Your Lineup ({game.userPlayers.length})
                       </h4>
                       <div className="space-y-1">
-                        {game.userPlayers.slice(0, 2).map((player) => (
+                        {game.userPlayers
+                          .sort((a, b) => {
+                            // Define position order: Players first (QB, RB, WR, TE), then teams (Pass, Rush, Def, ST)
+                            const positionOrder = {
+                              'QB': 1, 'RB': 2, 'WR': 3, 'TE': 4,
+                              'PassingOffense': 5, 'RushingOffense': 6, 'Defense': 7, 'SpecialTeams': 8
+                            };
+                            
+                            const orderA = positionOrder[a.position as keyof typeof positionOrder] || 999;
+                            const orderB = positionOrder[b.position as keyof typeof positionOrder] || 999;
+                            
+                            return orderA - orderB;
+                          })
+                          .map((player) => (
                           <div key={player.id} className="flex items-center justify-between text-sm">
                             <span className="text-blue-800 dark:text-blue-200">
-                              {player.name} ({player.position})
+                              {player.displayName}
                               {player.isCaptain && <span className="ml-1 text-yellow-600">⭐</span>}
                             </span>
                             <span className="font-semibold text-blue-900 dark:text-blue-100">
@@ -342,35 +354,8 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
                             </span>
                           </div>
                         ))}
-                        {game.userPlayers.length > 2 && (
-                          <button
-                            onClick={() => toggleGameExpansion(game.gameID)}
-                            className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
-                          >
-                            {isExpanded ? 'Show less' : `+${game.userPlayers.length - 2} more players`}
-                          </button>
-                        )}
                       </div>
                     </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Expanded Players */}
-              {isExpanded && game.userPlayers.length > 2 && (
-                <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-200 dark:border-blue-800">
-                  <div className="space-y-1">
-                    {game.userPlayers.slice(2).map((player) => (
-                      <div key={player.id} className="flex items-center justify-between text-sm">
-                        <span className="text-blue-800 dark:text-blue-200">
-                          {player.name} ({player.position})
-                          {player.isCaptain && <span className="ml-1 text-yellow-600">⭐</span>}
-                        </span>
-                        <span className="font-semibold text-blue-900 dark:text-blue-100">
-                          {player.currentPoints.toFixed(1)} pts
-                        </span>
-                      </div>
-                    ))}
                   </div>
                 </div>
               )}

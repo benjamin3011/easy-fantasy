@@ -93,3 +93,10 @@ export const adminOptions = {
     // No specific secrets needed directly by admin role function
 };
 
+export const autoAssistantOptions = {
+    ...functionOptions,
+    timeoutSeconds: 300, // Allow time for processing multiple users/leagues
+    memory: "512MiB" as MemoryOption, // More memory for lineup processing
+    secrets: [secrets.TANK01_KEY], // May need API access for player data
+};
+

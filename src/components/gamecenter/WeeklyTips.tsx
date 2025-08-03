@@ -5,6 +5,7 @@ import { db } from '../../firebase/firebase';
 import { useAuth } from '../../context/AuthContext';
 import TipsSummary from './TipsSummary';
 import { SkeletonPage } from '../ui/skeleton/SkeletonLoader';
+import { GameScore } from '../../services/lineupFetchingService';
 
 interface TippableGame {
   gameId: string;
@@ -46,15 +47,7 @@ interface UserTipsSubmission {
   totalGames: number;
 }
 
-interface GameScore {
-  gameId: string;
-  homeScore: number;
-  awayScore: number;
-  quarter: number;
-  timeRemaining: string;
-  gameStatusCode: number; // 0 = scheduled, 1 = in progress, 2 = final
-  lastUpdated: number;
-}
+// GameScore interface is now imported from lineupFetchingService
 
 interface TeamInfo {
   logoUrl: string;
@@ -222,40 +215,42 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
     }, 500);
   };
 
-  // Mock game scores for testing
+  // Fetch real game scores with auto-refresh
   useEffect(() => {
     if (!tipsPoll?.games) return;
     
-    const mockScores: Record<string, GameScore> = {};
-    tipsPoll.games.forEach((game, index) => {
-      // Create varied mock data for testing
-      if (index % 3 === 0) {
-        // Live game
-        mockScores[game.gameId] = {
-          gameId: game.gameId,
-          homeScore: 14,
-          awayScore: 7,
-          quarter: 2,
-          timeRemaining: '8:23',
-          gameStatusCode: 1,
-          lastUpdated: Date.now()
-        };
-      } else if (index % 3 === 1) {
-        // Final game
-        mockScores[game.gameId] = {
-          gameId: game.gameId,
-          homeScore: 28,
-          awayScore: 21,
-          quarter: 4,
-          timeRemaining: 'Final',
-          gameStatusCode: 2,
-          lastUpdated: Date.now()
-        };
+    const fetchRealGameScores = async () => {
+      try {
+        const gameIds = tipsPoll.games.map(game => game.gameId);
+        
+        // Import the fetchGameScores function dynamically to avoid circular deps
+        const { fetchGameScores } = await import('../../services/lineupFetchingService');
+        const gameScoresMap = await fetchGameScores(gameIds);
+        
+        // Convert Map to Record for state (keeping original GameScore structure)
+        const scoresRecord: Record<string, GameScore> = {};
+        for (const [gameId, score] of gameScoresMap.entries()) {
+          scoresRecord[gameId] = score; // Use the score directly as it already matches GameScore interface
+        }
+        
+        setGameScores(scoresRecord);
+      } catch (error) {
+        console.error('Error fetching real game scores:', error);
+        // Keep empty scores object on error - games will show as scheduled
+        setGameScores({});
       }
-      // Some games have no scores (scheduled)
-    });
+    };
     
-    setGameScores(mockScores);
+    // Initial fetch
+    fetchRealGameScores();
+    
+    // Auto-refresh every 30 seconds during game days
+    const refreshInterval = setInterval(() => {
+      fetchRealGameScores();
+    }, 30000);
+    
+    // Cleanup interval on unmount
+    return () => clearInterval(refreshInterval);
   }, [tipsPoll?.games]);
 
   // Fetch team logos and info
@@ -347,7 +342,7 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
     if (score.gameStatusCode === 2) {
       return 'Final';
     } else if (score.gameStatusCode === 1) {
-      return `Q${score.quarter} ${score.timeRemaining}`;
+      return `Q${score.quarter || 1} ${score.timeRemaining || ''}`;
     }
     
     return 'Scheduled';

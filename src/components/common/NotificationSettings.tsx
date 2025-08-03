@@ -24,6 +24,10 @@ interface NotificationPreferences {
   // Personal Achievements
   achievementAlerts: boolean;
   
+  // Auto-Assistant Features
+  autoLineupAlerts: boolean;
+  autoTipsAlerts: boolean;
+  
   // System
   enabled: boolean;
   quietHours: {
@@ -47,6 +51,10 @@ const defaultPreferences: NotificationPreferences = {
   
   // Personal Achievements
   achievementAlerts: false, // Will implement in this phase
+  
+  // Auto-Assistant Features
+  autoLineupAlerts: true, // Enabled by default
+  autoTipsAlerts: true,   // Enabled by default
   
   // System
   enabled: true,
@@ -310,6 +318,31 @@ export default function NotificationSettings() {
           />
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Get notified about your lineup milestones and achievements 🏆
+          </p>
+        </div>
+
+        {/* Auto-Assistant Notifications */}
+        <div className="space-y-4">
+          <h4 className="font-medium text-gray-900 dark:text-white">Auto-Assistant</h4>
+          
+          <Switch
+            label="Auto-Lineup Alerts"
+            defaultChecked={preferences.autoLineupAlerts}
+            onChange={(checked) => handlePreferenceChange('autoLineupAlerts', checked)}
+            disabled={!preferences.enabled || hasPermission !== true}
+          />
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Get notified when auto-lineup sets your weekly lineup 🤖
+          </p>
+
+          <Switch
+            label="Auto-Tips Alerts"
+            defaultChecked={preferences.autoTipsAlerts}
+            onChange={(checked) => handlePreferenceChange('autoTipsAlerts', checked)}
+            disabled={!preferences.enabled || hasPermission !== true}
+          />
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Get notified when auto-tips picks your weekly game predictions 🎯
           </p>
         </div>
 

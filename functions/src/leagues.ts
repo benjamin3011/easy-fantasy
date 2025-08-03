@@ -16,7 +16,16 @@ export const createLeague = onCall({ ...leagueOptions }, async (request) => {
     throw new HttpsError('unauthenticated', 'Authentication is required to create a league.');
   }
 
-  const { name, teamName, isPublic = false, enableCaptainFeature = false, captainPointMultiplier = 1.5, enableWeeklyTips = false } = request.data;
+  const { 
+    name, 
+    teamName, 
+    isPublic = false, 
+    enableCaptainFeature = false, 
+    captainPointMultiplier = 1.5, 
+    enableWeeklyTips = false,
+    autoLineup = { enabled: false },
+    autoTips = { enabled: false }
+  } = request.data;
   const uid = request.auth.uid;
 
   if (!name || typeof name !== 'string' || name.trim() === '') { throw new HttpsError('invalid-argument', 'League name required.'); }
@@ -37,6 +46,8 @@ export const createLeague = onCall({ ...leagueOptions }, async (request) => {
       enableCaptainFeature, // Store this
       captainPointMultiplier, // Store this
       enableWeeklyTips, // Store this
+      autoLineup, // Store auto-lineup settings
+      autoTips, // Store auto-tips settings
       members: [{ uid, teamName: teamName.trim() }],
       memberUids: [uid],
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -214,5 +225,75 @@ export const updateLeagueWeeklyTipsSettings = onCall({ ...leagueOptions }, async
     const errorMessage = error instanceof Error ? error.message : String(error);
     logger.error(`Error updating weekly tips settings for league ${leagueId}:`, { error: errorMessage, detail: error, userId: uid });
     throw new HttpsError('internal', 'An internal error occurred while updating league settings.');
+    }
+});
+
+// Update League Auto-Settings (Auto-Lineup & Auto-Tips)
+export const updateLeagueAutoSettings = onCall({ ...leagueOptions }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Authentication is required to update league settings.');
+  }
+  const { leagueId, autoLineup, autoTips } = request.data;
+  const uid = request.auth.uid;
+
+  // Validate payload
+  if (!leagueId || typeof leagueId !== 'string') {
+    throw new HttpsError('invalid-argument', 'League ID is required.');
+  }
+
+  // Validate autoLineup if provided
+  if (autoLineup !== undefined) {
+    if (typeof autoLineup !== 'object' || autoLineup === null) {
+      throw new HttpsError('invalid-argument', 'autoLineup must be an object.');
+    }
+    if (typeof autoLineup.enabled !== 'boolean') {
+      throw new HttpsError('invalid-argument', 'autoLineup.enabled must be a boolean.');
+    }
+  }
+
+  // Validate autoTips if provided
+  if (autoTips !== undefined) {
+    if (typeof autoTips !== 'object' || autoTips === null) {
+      throw new HttpsError('invalid-argument', 'autoTips must be an object.');
+    }
+    if (typeof autoTips.enabled !== 'boolean') {
+      throw new HttpsError('invalid-argument', 'autoTips.enabled must be a boolean.');
+    }
+  }
+
+  const leagueRef = db.doc(`leagues/${leagueId}`);
+
+  try {
+    const leagueDoc = await leagueRef.get();
+    if (!leagueDoc.exists) {
+      throw new HttpsError('not-found', 'League not found.');
+    }
+
+    const leagueData = leagueDoc.data();
+    if (!leagueData || leagueData.adminUid !== uid) {
+      throw new HttpsError('permission-denied', 'You must be the league admin to change these settings.');
+    }
+
+    // Prepare update object
+    const updateData: any = {};
+    if (autoLineup !== undefined) {
+      updateData.autoLineup = autoLineup;
+    }
+    if (autoTips !== undefined) {
+      updateData.autoTips = autoTips;
+    }
+
+    // Update the league document
+    await leagueRef.update(updateData);
+
+    logger.log(`League ${leagueId} auto-settings updated by admin ${uid}:`, { autoLineup, autoTips });
+    return { success: true, message: 'League auto-assistant settings updated successfully.' };
+  } catch (error: unknown) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`Error updating auto-settings for league ${leagueId}:`, { error: errorMessage, detail: error, userId: uid });
+    throw new HttpsError('internal', 'An internal error occurred while updating league auto-settings.');
     }
 });

@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import PageMeta from "../components/common/PageMeta";
 import { useAuth } from '../context/AuthContext';
-import { useParams, useNavigate, useLocation } from 'react-router';
-import { APP_CONFIG, MAX_NFL_WEEKS } from '../config/appConfig';
-import { calculateCurrentNFLWeek } from '../utils/nflWeekHelper';
-import { listenToUserLeagues, League } from '../utils/leagues';
-import Select from '../components/form/Select';
+import { useLeagueContext } from '../context/LeagueContext';
+import { useParams, useLocation } from 'react-router';
+import { APP_CONFIG } from '../config/appConfig';
+
 import { SkeletonPage } from '../components/ui/skeleton/SkeletonLoader';
 import ComponentCard from '../components/common/ComponentCard';
 import Button from '../components/ui/button/Button';
@@ -15,6 +14,8 @@ import { Link } from 'react-router';
 import { Suspense, lazy } from 'react';
 import PullToRefresh from '../components/ui/PullToRefresh';
 import CachedDataIndicator from '../components/common/CachedDataIndicator';
+import InlineLeagueSelector from '../components/common/InlineLeagueSelector';
+import InlineWeekSelector from '../components/common/InlineWeekSelector';
 const SimpleLineupGrid = lazy(() => import('../components/lineup/SimpleLineupGrid'));
 import { useLineupStore } from '../store/lineupStore';
 
@@ -22,9 +23,21 @@ import { useLineupStore } from '../store/lineupStore';
 
 export default function LineupPage() {
   const { leagueId: urlLeagueId, week: weekString } = useParams<{ leagueId: string; week: string }>();
-  const navigate = useNavigate();
+
   const location = useLocation();
   const { user, loading: authLoading } = useAuth();
+  
+  // Use global league context
+  const {
+    leagues,
+    leaguesLoading,
+    leaguesError,
+    selectedLeagueId,
+    selectedLeague,
+    effectiveWeek,
+    setSelectedLeagueId,
+    setSelectedWeek
+  } = useLeagueContext();
 
   // Initialize Zustand store
   const { initializeContext, cleanup } = useLineupStore();
@@ -33,20 +46,7 @@ export default function LineupPage() {
   const isParameterizedRoute = urlLeagueId && weekString;
   const isDirectRoute = location.pathname === '/lineup';
 
-  // State for smart route handling
-  const [userLeagues, setUserLeagues] = useState<League[]>([]);
-  const [leaguesLoading, setLeaguesLoading] = useState(false);
-  const [leaguesError, setLeaguesError] = useState<string | null>(null);
 
-  // Resolved parameters (from URL or smart defaults)
-  const [resolvedLeagueId, setResolvedLeagueId] = useState<string | null>(urlLeagueId || null);
-  const [resolvedWeek, setResolvedWeek] = useState<number>(() => {
-    if (weekString) {
-      const parsed = parseInt(weekString, 10);
-      return isNaN(parsed) ? calculateCurrentNFLWeek() : parsed;
-    }
-    return calculateCurrentNFLWeek();
-  });
 
   const currentSeasonString = APP_CONFIG.CURRENT_NFL_SEASON;
   const currentSeason = parseInt(currentSeasonString, 10);
@@ -61,42 +61,37 @@ export default function LineupPage() {
     return () => {
       cleanup();
     };
-  }, [cleanup, resolvedLeagueId, resolvedWeek]);
+  }, [cleanup, selectedLeagueId, effectiveWeek]);
 
   // Initialize store context when we have all required data
   useEffect(() => {
-    if (userId && resolvedLeagueId && resolvedWeek && currentSeason && !isPageLoading) {
-      initializeContext(userId, resolvedLeagueId, resolvedWeek, currentSeason);
+    if (userId && selectedLeagueId && effectiveWeek && currentSeason && !isPageLoading) {
+      initializeContext(userId, selectedLeagueId, effectiveWeek, currentSeason);
     }
-  }, [userId, resolvedLeagueId, resolvedWeek, currentSeason, isPageLoading, initializeContext]);
+  }, [userId, selectedLeagueId, effectiveWeek, currentSeason, isPageLoading, initializeContext]);
 
-  // Smart route handling: Fetch user leagues when on direct route
+  // Sync URL parameters with global context
   useEffect(() => {
-    if (isDirectRoute && userId && !authLoading) {
-      setLeaguesLoading(true);
-      setLeaguesError(null);
-      
-      const unsubscribe = listenToUserLeagues(
-        userId,
-        (fetchedLeagues) => {
-          setUserLeagues(fetchedLeagues);
-          setLeaguesLoading(false);
-          
-          // Auto-select first league if none is resolved yet
-          if (!resolvedLeagueId && fetchedLeagues.length > 0) {
-            setResolvedLeagueId(fetchedLeagues[0].id);
-          }
-        },
-        (error) => {
-          console.error("Error fetching user leagues for lineup:", error);
-          setLeaguesError("Failed to load your leagues.");
-          setLeaguesLoading(false);
+    if (isParameterizedRoute) {
+      // For parameterized routes, sync URL parameters with global context
+      if (urlLeagueId && urlLeagueId !== selectedLeagueId) {
+        setSelectedLeagueId(urlLeagueId);
+      }
+      if (weekString) {
+        const parsed = parseInt(weekString, 10);
+        if (!isNaN(parsed) && parsed !== effectiveWeek) {
+          setSelectedWeek(parsed);
         }
-      );
-      
-      return () => unsubscribe();
+      }
     }
-  }, [isDirectRoute, userId, authLoading, resolvedLeagueId]);
+  }, [isParameterizedRoute, urlLeagueId, weekString, selectedLeagueId, effectiveWeek, setSelectedLeagueId, setSelectedWeek]);
+
+  // Auto-select first league for direct routes
+  useEffect(() => {
+    if (isDirectRoute && !selectedLeagueId && leagues.length > 0) {
+      setSelectedLeagueId(leagues[0].id);
+    }
+  }, [isDirectRoute, selectedLeagueId, leagues, setSelectedLeagueId]);
 
   // Main page loading logic
   useEffect(() => {
@@ -114,11 +109,10 @@ export default function LineupPage() {
 
     if (isParameterizedRoute) {
       // Parameterized route: Check if we have all required params
-      if (!urlLeagueId || resolvedWeek < 1 || !currentSeason) {
+              if (!urlLeagueId || effectiveWeek < 1 || !currentSeason) {
         setPageError("Invalid lineup parameters.");
         setIsPageLoading(false);
       } else {
-        setResolvedLeagueId(urlLeagueId);
         setIsPageLoading(false);
         setPageError(null);
       }
@@ -130,10 +124,10 @@ export default function LineupPage() {
       } else if (leaguesError) {
         setPageError(leaguesError);
         setIsPageLoading(false);
-      } else if (userLeagues.length === 0) {
+      } else if (leagues.length === 0) {
         setPageError(null); // Will show "no leagues" UI instead
         setIsPageLoading(false);
-      } else if (resolvedLeagueId && resolvedWeek >= 1 && currentSeason) {
+      } else if (selectedLeagueId && effectiveWeek >= 1 && currentSeason) {
         setIsPageLoading(false);
         setPageError(null);
       } else {
@@ -150,35 +144,17 @@ export default function LineupPage() {
     isParameterizedRoute, 
     isDirectRoute, 
     urlLeagueId, 
-    resolvedWeek, 
+    effectiveWeek, 
     currentSeason, 
     leaguesLoading, 
     leaguesError, 
-    userLeagues.length, 
-    resolvedLeagueId
+    leagues.length, 
+    selectedLeagueId
   ]);
 
 
 
-  const handleWeekChange = (newWeekValue: string) => {
-    const newWeek = parseInt(newWeekValue, 10);
-    if (newWeek >= 1 && newWeek <= MAX_NFL_WEEKS && resolvedLeagueId) {
-      if (isParameterizedRoute) {
-        navigate(`/leagues/${resolvedLeagueId}/lineup/${newWeek}`);
-      } else {
-        setResolvedWeek(newWeek);
-      }
-    }
-  };
-
-  const handleLeagueChange = (newLeagueId: string) => {
-    if (isDirectRoute) {
-      setResolvedLeagueId(newLeagueId);
-    } else {
-      // For parameterized routes, navigate to the new league
-      navigate(`/leagues/${newLeagueId}/lineup/${resolvedWeek}`);
-    }
-  };
+  // The inline selectors handle their own state changes through the global context
 
   // Loading state
   if (isPageLoading) {
@@ -217,7 +193,7 @@ export default function LineupPage() {
   }
 
   // No leagues state (only for direct route)
-  if (isDirectRoute && userLeagues.length === 0) {
+  if (isDirectRoute && leagues.length === 0 && !leaguesLoading) {
     return (
       <>
         <PageMeta title="Lineup | Easy Fantasy" description="NFL Fantasy Football" />
@@ -248,25 +224,13 @@ export default function LineupPage() {
     );
   }
 
-  // Generate week options
-  const weekOptions = Array.from({ length: MAX_NFL_WEEKS }, (_, i) => ({
-    value: (i + 1).toString(),
-    label: `Week ${i + 1}`,
-  }));
-
-  // Generate league options
-  const leagueOptions = userLeagues.map(league => ({
-    value: league.id,
-    label: league.name,
-  }));
-
-  const selectedLeague = userLeagues.find(league => league.id === resolvedLeagueId);
-  const currentNflWeek = resolvedWeek;
+  // Use global context data
+  const currentNflWeek = effectiveWeek;
 
   return (
     <>
       <PageMeta 
-        title={`Week ${resolvedWeek} Lineup | Easy Fantasy`} 
+        title={`Week ${effectiveWeek} Lineup | Easy Fantasy`} 
         description="Set your weekly fantasy football lineup" 
       />
       
@@ -274,45 +238,28 @@ export default function LineupPage() {
       <div className="container mx-auto px-4 py-6 pb-content-safe">
         {/* Header with Controls */}
         <div className="mb-4">
-          <div className="flex flex-col gap-3">
-            {/* Title and League Info */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
-                  Lineup Builder
-                </h1>
-                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-0.5">
-                  Week {currentNflWeek} • {selectedLeague?.name || 'Select League'}
-                </p>
-              </div>
-              {userId && resolvedLeagueId && (
-                <CachedDataIndicator queryKey={['lineup', userId, resolvedLeagueId, currentNflWeek.toString()]} />
-              )}
+          {/* Desktop: Show page title */}
+          <div className="hidden md:flex items-center justify-between mb-2">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+              Lineup Builder
+            </h1>
+            {userId && selectedLeagueId && (
+              <CachedDataIndicator queryKey={['lineup', userId, selectedLeagueId, currentNflWeek.toString()]} />
+            )}
+          </div>
+          
+          {/* Mobile & Desktop: Inline selectors */}
+          <div className="flex items-center justify-between">
+            <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
+              <InlineLeagueSelector />
+              <span>•</span>
+              <InlineWeekSelector />
             </div>
-            
-            {/* Selectors Row */}
-            <div className="flex gap-2">
-              {/* League Selector (only for direct route) - Takes 2/3 width */}
-              {isDirectRoute && leagueOptions.length > 1 && (
-                <div className="flex-[2] min-w-0">
-                  <Select
-                    defaultValue={resolvedLeagueId || ''}
-                    onChange={handleLeagueChange}
-                    options={leagueOptions}
-                    placeholder="Select League"
-                  />
-                </div>
+            {/* Mobile: Show cached data indicator */}
+            <div className="md:hidden">
+              {userId && selectedLeagueId && (
+                <CachedDataIndicator queryKey={['lineup', userId, selectedLeagueId, currentNflWeek.toString()]} />
               )}
-              
-              {/* Week Selector - Takes 1/3 width or full width if no league selector */}
-              <div className={`${isDirectRoute && leagueOptions.length > 1 ? 'flex-1' : 'w-full max-w-32'} min-w-0`}>
-                <Select
-                  defaultValue={resolvedWeek.toString()}
-                  onChange={handleWeekChange}
-                  options={weekOptions}
-                  placeholder="Week"
-                />
-              </div>
             </div>
           </div>
         </div>

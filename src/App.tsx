@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from "react-router";
 import { Suspense, lazy } from "react";
 import PWAUpdateNotification from "./components/common/PWAUpdateNotification";
 import { AuthProvider } from "./context/AuthContext";
+import { LeagueProvider } from "./context/LeagueContext";
 import AppLayout from "./layout/AppLayout";
 import PWAPrompt from 'react-ios-pwa-prompt';
 import PrivateRoute from "./components/auth/PrivateRoute";
@@ -35,60 +36,62 @@ function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <Router>
-          <Routes>
-          {/* private */}
-          <Route element={<PrivateRoute><AppLayout /></PrivateRoute>}>
-            <Route path="/" element={
-              <Suspense fallback={<PageLoadingFallback />}>
-                <HomePage />
-              </Suspense>
-            } />
-            <Route path="/tips" element={
-              <Suspense fallback={<PageLoadingFallback />}>
-                <TipsPage />
-              </Suspense>
-            } />
-            <Route path="/leagues" element={
-              <Suspense fallback={<PageLoadingFallback />}>
-                <LeaguesPage />
-              </Suspense>
-            } />
-            <Route path="/leagues/:id" element={
-              <Suspense fallback={<PageLoadingFallback />}>
-                <LeagueDetail />
-              </Suspense>
-            } /> 
-            <Route path="/lineup" element={
-              <Suspense fallback={<PageLoadingFallback />}>
-                <LineupPage />
-              </Suspense>
-            } />
-            <Route path="/leagues/:leagueId/lineup/:week" element={
-              <Suspense fallback={<PageLoadingFallback />}>
-                <LineupPage />
-              </Suspense>
-            } />
-            <Route path="/profile" element={
-              <Suspense fallback={<PageLoadingFallback />}>
-                <UserProfilePage />
-              </Suspense>
-            } />
-            <Route path="/admin" element={
-              <Suspense fallback={<PageLoadingFallback />}>
-                <AdminPage />
-              </Suspense>
-            } />
-          </Route>
-          {/* public */}
-          <Route path="/signin" element={<SignIn />} />
-          <Route path="/signup" element={<SignUp />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          </Routes>
-        </Router>
-        <PWAUpdateNotification />
-        <Toaster />
-        <PWAPrompt />
+        <LeagueProvider>
+          <Router>
+            <Routes>
+            {/* private */}
+            <Route element={<PrivateRoute><AppLayout /></PrivateRoute>}>
+              <Route path="/" element={
+                <Suspense fallback={<PageLoadingFallback />}>
+                  <HomePage />
+                </Suspense>
+              } />
+              <Route path="/tips" element={
+                <Suspense fallback={<PageLoadingFallback />}>
+                  <TipsPage />
+                </Suspense>
+              } />
+              <Route path="/leagues" element={
+                <Suspense fallback={<PageLoadingFallback />}>
+                  <LeaguesPage />
+                </Suspense>
+              } />
+              <Route path="/leagues/:id" element={
+                <Suspense fallback={<PageLoadingFallback />}>
+                  <LeagueDetail />
+                </Suspense>
+              } /> 
+              <Route path="/lineup" element={
+                <Suspense fallback={<PageLoadingFallback />}>
+                  <LineupPage />
+                </Suspense>
+              } />
+              <Route path="/leagues/:leagueId/lineup/:week" element={
+                <Suspense fallback={<PageLoadingFallback />}>
+                  <LineupPage />
+                </Suspense>
+              } />
+              <Route path="/profile" element={
+                <Suspense fallback={<PageLoadingFallback />}>
+                  <UserProfilePage />
+                </Suspense>
+              } />
+              <Route path="/admin" element={
+                <Suspense fallback={<PageLoadingFallback />}>
+                  <AdminPage />
+                </Suspense>
+              } />
+            </Route>
+            {/* public */}
+            <Route path="/signin" element={<SignIn />} />
+            <Route path="/signup" element={<SignUp />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            </Routes>
+          </Router>
+          <PWAUpdateNotification />
+          <Toaster />
+          <PWAPrompt />
+        </LeagueProvider>
       </AuthProvider>
     </ErrorBoundary>
   )
