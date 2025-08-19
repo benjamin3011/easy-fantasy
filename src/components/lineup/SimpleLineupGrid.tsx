@@ -3,7 +3,7 @@ import { Suspense, lazy } from 'react';
 import { useLineupStore } from '../../store/lineupStore';
 import { useNetworkStatus } from '../common/NetworkStatusProvider';
 import { POSITIONS_CONFIG } from '../../config/positions';
-import { SelectableEntity } from '../../types/lineup';
+import { SelectableEntity, PositionKey } from '../../types/lineup';
 import SimpleLineupSlot from './SimpleLineupSlot';
 import SimpleEntitySelectionPanel from './SimpleEntitySelectionPanel';
 import SimpleCaptainSelector from './SimpleCaptainSelector';
@@ -61,10 +61,12 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
   const lineupEntities = useMemo(() => {
     if (!lineup) return [];
     
-    return Object.entries(lineup).map(([positionKey, entity]) => ({
-      entity,
-      positionKey: positionKey as any
-    })).filter(({ entity }) => entity !== null);
+    return Object.entries(lineup)
+      .map(([positionKey, entity]) => ({
+        entity,
+        positionKey: positionKey as PositionKey
+      }))
+      .filter(({ entity }) => entity !== null);
   }, [lineup]);
 
   // Get actual points data when games have started

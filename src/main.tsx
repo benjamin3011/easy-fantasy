@@ -40,17 +40,17 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
       .then((registration) => {
-        console.log('Service worker registered successfully');
+        if (import.meta.env.DEV) console.log('Service worker registered successfully');
         
         // Global message listener for skip waiting
         navigator.serviceWorker.addEventListener('message', (event) => {
-          console.log('Received SW message:', event.data);
+          if (import.meta.env.DEV) console.log('Received SW message:', event.data);
           if (event.data && event.data.type === 'SKIP_WAITING') {
             // Find all registrations and send skip waiting to any waiting workers
             navigator.serviceWorker.getRegistrations().then(registrations => {
               registrations.forEach(reg => {
                 if (reg.waiting) {
-                  console.log('Sending SKIP_WAITING to waiting service worker');
+                  if (import.meta.env.DEV) console.log('Sending SKIP_WAITING to waiting service worker');
                   reg.waiting.postMessage({ type: 'SKIP_WAITING' });
                 }
               });
@@ -67,11 +67,11 @@ if ('serviceWorker' in navigator) {
         
         // Listen for new service worker
         registration.addEventListener('updatefound', () => {
-          console.log('New service worker found');
+          if (import.meta.env.DEV) console.log('New service worker found');
           const newWorker = registration.installing;
           if (newWorker) {
             newWorker.addEventListener('statechange', () => {
-              console.log('SW state changed to:', newWorker.state);
+              if (import.meta.env.DEV) console.log('SW state changed to:', newWorker.state);
               if (newWorker.state === 'installed') {
                 if (navigator.serviceWorker.controller) {
                   // Check if we recently updated to avoid notification loops
@@ -81,7 +81,7 @@ if ('serviceWorker' in navigator) {
                   if (lastUpdate) {
                     const timeSinceUpdate = Date.now() - parseInt(lastUpdate);
                     if (timeSinceUpdate < 60000) { // 1 minute
-                      console.log('Skipping update notification - recently updated');
+                      if (import.meta.env.DEV) console.log('Skipping update notification - recently updated');
                       return;
                     }
                   }
@@ -89,17 +89,17 @@ if ('serviceWorker' in navigator) {
                   if (lastDismiss) {
                     const timeSinceDismiss = Date.now() - parseInt(lastDismiss);
                     if (timeSinceDismiss < 300000) { // 5 minutes
-                      console.log('Skipping update notification - recently dismissed');
+                      if (import.meta.env.DEV) console.log('Skipping update notification - recently dismissed');
                       return;
                     }
                   }
                   
                   // New content is available
-                  console.log('New PWA version available - dispatching event');
+                  if (import.meta.env.DEV) console.log('New PWA version available - dispatching event');
                   window.dispatchEvent(new CustomEvent('pwa-update-available'));
                 } else {
                   // Content is cached for first time
-                  console.log('PWA content cached for offline use');
+                  if (import.meta.env.DEV) console.log('PWA content cached for offline use');
                 }
               }
             });
@@ -108,7 +108,7 @@ if ('serviceWorker' in navigator) {
 
         // Listen for controlling service worker changes
         navigator.serviceWorker.addEventListener('controllerchange', () => {
-          console.log('Service worker controller changed - new SW is now controlling');
+          if (import.meta.env.DEV) console.log('Service worker controller changed - new SW is now controlling');
         });
               })
         .catch((error) => {

@@ -125,7 +125,9 @@ export default function NotificationSettings() {
       if (permission === 'granted') {
         setSuccess('Notification permission granted!');
         // Detect iOS PWA (Safari Add-to-Home-Screen) and use Web Push subscription
-        const isStandalone = (window.navigator as any).standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+        const navAny = window.navigator as unknown as { standalone?: boolean };
+        const isStandalone = (typeof navAny.standalone === 'boolean' && navAny.standalone === true)
+          || window.matchMedia('(display-mode: standalone)').matches;
         const ua = window.navigator.userAgent || '';
         const isIOS = /iP(hone|od|ad)/.test(ua);
         const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
@@ -161,6 +163,7 @@ export default function NotificationSettings() {
           }
         } else {
           // Initialize FCM to get token for Android/desktop web
+          // Use static import to avoid mixed dynamic/static chunking warnings
           const { initMessaging } = await import('../../firebase/firebase');
           await initMessaging(user?.uid || null);
         }

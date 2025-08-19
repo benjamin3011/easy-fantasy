@@ -44,19 +44,19 @@ export default function NotificationDropdown() {
         limit(15)
       );
       const snap = await getDocs(q);
-      const allNotifications = snap.docs.map(d => {
-        const raw = d.data() as any;
+      const allNotifications: UserNotificationDoc[] = snap.docs.map(d => {
+        const raw = d.data() as Partial<UserNotificationDoc> & { createdAt?: Timestamp; readAt?: Timestamp };
         return {
           id: d.id,
-          type: raw.type,
-          title: raw.title,
-          body: raw.body,
-          createdAt: (raw.createdAt as Timestamp)?.toDate?.() ?? new Date(),
-          readAt: (raw.readAt as Timestamp | undefined)?.toDate?.(),
+          type: raw.type!,
+          title: raw.title || '',
+          body: raw.body || '',
+          createdAt: raw.createdAt?.toDate?.() ?? new Date(),
+          readAt: raw.readAt?.toDate?.(),
           data: raw.data,
           channel: raw.channel,
           source: raw.source,
-        } as UserNotificationDoc;
+        };
       });
       
       // Sort: unread first, then by date

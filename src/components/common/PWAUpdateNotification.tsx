@@ -20,7 +20,7 @@ const PWAUpdateNotification = () => {
       const cleanUrl = window.location.href.split('?')[0];
       window.history.replaceState({}, document.title, cleanUrl);
       
-      console.log('PWA update completed at:', new Date(updateTime).toISOString());
+      if (import.meta.env.DEV) console.log('PWA update completed at:', new Date(updateTime).toISOString());
       return; // Don't set up listeners yet
     }
 
@@ -31,12 +31,12 @@ const PWAUpdateNotification = () => {
       
       if (lastUpdate && Date.now() - parseInt(lastUpdate) > 86400000) { // 24 hours
         localStorage.removeItem('pwa-last-update');
-        console.log('Cleaned up old update tracking data');
+        if (import.meta.env.DEV) console.log('Cleaned up old update tracking data');
       }
       
       if (lastDismiss && Date.now() - parseInt(lastDismiss) > 86400000) { // 24 hours
         localStorage.removeItem('pwa-update-dismissed');
-        console.log('Cleaned up old dismiss tracking data');
+        if (import.meta.env.DEV) console.log('Cleaned up old dismiss tracking data');
       }
     };
     
@@ -49,12 +49,12 @@ const PWAUpdateNotification = () => {
       if (lastUpdate) {
         const timeSinceUpdate = Date.now() - parseInt(lastUpdate);
         if (timeSinceUpdate < 30000) { // 30 seconds
-          console.log('Ignoring update notification - recently updated');
+          if (import.meta.env.DEV) console.log('Ignoring update notification - recently updated');
           return;
         }
       }
       
-      console.log('Showing PWA update notification');
+      if (import.meta.env.DEV) console.log('Showing PWA update notification');
       setShowUpdatePrompt(true);
     };
 
@@ -76,11 +76,11 @@ const PWAUpdateNotification = () => {
     
     try {
       setUpdateStep('Checking service workers...');
-      console.log('Starting PWA update process');
+      if (import.meta.env.DEV) console.log('Starting PWA update process');
       
       // Step 1: Get all service worker registrations
       const registrations = await navigator.serviceWorker.getRegistrations();
-      console.log('Found registrations:', registrations.length);
+      if (import.meta.env.DEV) console.log('Found registrations:', registrations.length);
       
       if (registrations.length === 0) {
         throw new Error('No service worker registrations found');
@@ -90,19 +90,19 @@ const PWAUpdateNotification = () => {
       
       // Step 2: Handle service worker updates more carefully
       for (const registration of registrations) {
-        console.log('Updating registration:', registration.scope);
+        if (import.meta.env.DEV) console.log('Updating registration:', registration.scope);
         
         // Force update
         await registration.update();
         
         // Handle waiting service worker
         if (registration.waiting) {
-          console.log('Found waiting service worker, activating...');
+          if (import.meta.env.DEV) console.log('Found waiting service worker, activating...');
           
           // Create a promise that resolves when the service worker activates
           const activationPromise = new Promise<void>((resolve) => {
             const handleControllerChange = () => {
-              console.log('Service worker activated');
+              if (import.meta.env.DEV) console.log('Service worker activated');
               navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
               resolve();
             };
@@ -135,7 +135,7 @@ const PWAUpdateNotification = () => {
           )
         ]);
         
-        console.log('Found caches:', cacheNames);
+        if (import.meta.env.DEV) console.log('Found caches:', cacheNames);
         
         await Promise.race([
           Promise.all(cacheNames.map(cacheName => caches.delete(cacheName))),
@@ -144,7 +144,7 @@ const PWAUpdateNotification = () => {
           )
         ]);
         
-        console.log('Caches cleared');
+        if (import.meta.env.DEV) console.log('Caches cleared');
       }
 
       setUpdateStep('Clearing storage...');
@@ -202,7 +202,7 @@ const PWAUpdateNotification = () => {
           }
         }
         
-        console.log('Storage cleared');
+        if (import.meta.env.DEV) console.log('Storage cleared');
       } catch (storageError) {
         console.warn('Storage clearing had issues:', storageError);
         // Continue anyway - not critical
@@ -241,7 +241,7 @@ const PWAUpdateNotification = () => {
 
       // Step 7: Force reload with cache busting and update timestamp
       const updateTimestamp = Date.now();
-      console.log('Forcing page reload with update timestamp:', updateTimestamp);
+      if (import.meta.env.DEV) console.log('Forcing page reload with update timestamp:', updateTimestamp);
       window.location.href = window.location.href.split('?')[0] + '?updated=' + updateTimestamp;
       
     } catch (error) {

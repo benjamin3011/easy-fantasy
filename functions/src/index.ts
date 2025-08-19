@@ -46,4 +46,5 @@ export * from './gameTips';
 // Auto-Assistant Functions
 export * from './autoAssistant';
 
-console.log("Firebase Functions initialized and exported."); // Log on deploy/cold start
+import { logger } from 'firebase-functions/v2';
+logger.info("Firebase Functions initialized and exported."); // Log on deploy/cold start

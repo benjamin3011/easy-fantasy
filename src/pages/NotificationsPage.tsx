@@ -4,7 +4,7 @@ import ComponentCard from '../components/common/ComponentCard';
 import Button from '../components/ui/button/Button';
 import { useAuth } from '../context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { collection, doc, getDocs, limit, orderBy, query, startAfter, Timestamp, updateDoc, where, deleteDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, limit, orderBy, query, startAfter, Timestamp, updateDoc, where, deleteDoc, type QueryDocumentSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import type { UserNotificationDoc, NotificationType } from '../types/notifications';
 import { useNavigate } from 'react-router';
@@ -22,7 +22,7 @@ export default function NotificationsPage() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [typeFilter, setTypeFilter] = useState<NotificationType | 'all'>('all');
-  const [lastDoc, setLastDoc] = useState<any>(null);
+  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot | null>(null);
   const [items, setItems] = useState<UserNotificationDoc[]>([]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
@@ -33,26 +33,30 @@ export default function NotificationsPage() {
     enabled: !!user?.uid,
     queryFn: async () => {
       const col = collection(db, 'users', user!.uid, 'notifications');
-      const constraints: any[] = [];
+      const constraints: Parameters<typeof query>[1][] = [];
       if (filter === 'unread') constraints.push(where('readAt', '==', null));
       if (typeFilter !== 'all') constraints.push(where('type', '==', typeFilter));
       constraints.push(orderBy('createdAt', 'desc'));
       constraints.push(limit(20));
       const q = query(col, ...constraints);
       const snap = await getDocs(q);
-      const mapped = snap.docs.map(d => {
-        const raw = d.data() as any;
+      const mapped: UserNotificationDoc[] = snap.docs.map(d => {
+        const raw = d.data() as { 
+          type?: NotificationType; title?: string; body?: string;
+          createdAt?: Timestamp; readAt?: Timestamp; data?: Record<string, unknown>;
+          channel?: 'fcm' | 'webpush' | 'inapp' | 'push'; source?: string;
+        };
         return {
           id: d.id,
-          type: raw.type,
-          title: raw.title,
-          body: raw.body,
-          createdAt: (raw.createdAt as Timestamp)?.toDate?.() ?? new Date(),
-          readAt: (raw.readAt as Timestamp | undefined)?.toDate?.(),
-          data: raw.data,
+          type: (raw.type ?? 'system') as NotificationType,
+          title: raw.title ?? '',
+          body: raw.body ?? '',
+          createdAt: raw.createdAt?.toDate?.() ?? new Date(),
+          readAt: raw.readAt?.toDate?.() ?? undefined,
+          data: raw.data ?? {},
           channel: raw.channel,
           source: raw.source,
-        } as UserNotificationDoc;
+        };
       });
       setItems(mapped);
       setLastDoc(snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null);
@@ -67,7 +71,7 @@ export default function NotificationsPage() {
     setIsLoadingMore(true);
     try {
       const col = collection(db, 'users', user.uid, 'notifications');
-      const constraints: any[] = [];
+      const constraints: Parameters<typeof query>[1][] = [];
       if (filter === 'unread') constraints.push(where('readAt', '==', null));
       if (typeFilter !== 'all') constraints.push(where('type', '==', typeFilter));
       constraints.push(orderBy('createdAt', 'desc'));
@@ -75,19 +79,23 @@ export default function NotificationsPage() {
       constraints.push(limit(20));
       const q = query(col, ...constraints);
       const snap = await getDocs(q);
-      const mapped = snap.docs.map(d => {
-        const raw = d.data() as any;
+      const mapped: UserNotificationDoc[] = snap.docs.map(d => {
+        const raw = d.data() as { 
+          type?: NotificationType; title?: string; body?: string;
+          createdAt?: Timestamp; readAt?: Timestamp; data?: Record<string, unknown>;
+          channel?: 'fcm' | 'webpush' | 'inapp' | 'push'; source?: string;
+        };
         return {
           id: d.id,
-          type: raw.type,
-          title: raw.title,
-          body: raw.body,
-          createdAt: (raw.createdAt as Timestamp)?.toDate?.() ?? new Date(),
-          readAt: (raw.readAt as Timestamp | undefined)?.toDate?.(),
-          data: raw.data,
+          type: (raw.type ?? 'system') as NotificationType,
+          title: raw.title ?? '',
+          body: raw.body ?? '',
+          createdAt: raw.createdAt?.toDate?.() ?? new Date(),
+          readAt: raw.readAt?.toDate?.() ?? undefined,
+          data: raw.data ?? {},
           channel: raw.channel,
           source: raw.source,
-        } as UserNotificationDoc;
+        };
       });
       setItems(prev => [...prev, ...mapped]);
       setLastDoc(snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null);
@@ -100,7 +108,7 @@ export default function NotificationsPage() {
     mutationFn: async () => {
       if (!user?.uid) return;
       const col = collection(db, 'users', user.uid, 'notifications');
-      const constraints: any[] = [where('readAt', '==', null)];
+      const constraints: Parameters<typeof query>[1][] = [where('readAt', '==', null)];
       if (typeFilter !== 'all') constraints.push(where('type', '==', typeFilter));
       const q = query(col, ...constraints);
       const snap = await getDocs(q);
@@ -158,7 +166,7 @@ export default function NotificationsPage() {
               <Button variant="outline" onClick={() => setFilter(filter === 'all' ? 'unread' : 'all')}>
                 {filter === 'all' ? 'Show Unread' : 'Show All'}
               </Button>
-              <select className="border rounded-md p-2 text-sm dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as any)}>
+              <select className="border rounded-md p-2 text-sm dark:bg-gray-800 dark:border-gray-700 dark:text-gray-200" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as NotificationType | 'all')}>
                 <option value="all">All Types</option>
                 <option value="lineup_deadline">{getNotificationTypeLabel('lineup_deadline')}</option>
                 <option value="performance">{getNotificationTypeLabel('performance')}</option>
@@ -252,7 +260,7 @@ export default function NotificationsPage() {
             </ul>
           )}
 
-          {lastDoc && (
+          {lastDoc !== null && (
             <div className="mt-4 flex justify-center">
               <Button onClick={loadMore} disabled={isLoadingMore}>{isLoadingMore ? 'Loading…' : 'Load more'}</Button>
             </div>

@@ -1,6 +1,5 @@
 /* utils/api/news.ts
    ------------------------------------------------------------------ */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { http } from "./http";
 
 /* ---------- raw types returned by the Cloud Function ------------- */
@@ -56,9 +55,11 @@ export async function fetchNews(): Promise<NewsItem[]> {
      -   an array           → [...]                        (v1)
      -   or { data: [...] } → { data: [...] , source:"…" } (v2) */
   const raw: unknown = res.data;
-  const list: RawNews[] =
-    Array.isArray(raw)               ? raw :
-    Array.isArray((raw as any)?.data)? (raw as any).data : [];
+  const list: RawNews[] = Array.isArray(raw)
+    ? raw
+    : (typeof raw === 'object' && raw !== null && Array.isArray((raw as { data?: unknown }).data))
+      ? (raw as { data: RawNews[] }).data
+      : [];
 
   /* normalise ------------------------------------------------------ */
   return list.map((it, idx) => ({

@@ -13,7 +13,7 @@ import { Member } from '../../utils/leagues';
 import { useLeagueContext } from '../../context/LeagueContext';
 import { useAuth } from '../../context/AuthContext';
 import { APP_CONFIG } from '../../config/appConfig';
-import { formatTimeUntilReveal } from '../../services/lineupVisibilityService';
+import { formatTimeUntilReveal, checkEntityVisibility } from '../../services/lineupVisibilityService';
 
 // Type for the slot data we build
 interface VisibleSlot {
@@ -115,8 +115,6 @@ export default function MemberLineupInline({
         let timeUntilReveal: number | null = null;
         
         if (weeklySchedule && pick.teamAbbreviation) {
-          const { checkEntityVisibility } = await import('../../services/lineupVisibilityService');
-          
           // Find the game ID for this team from the weekly schedule
           const teamGame = weeklySchedule.games.find((game: GameInfoFromSchedule) => 
             game.home === pick.teamAbbreviation || game.away === pick.teamAbbreviation

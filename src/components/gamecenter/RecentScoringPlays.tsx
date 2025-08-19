@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { League } from '../../utils/leagues';
-import { listenToStoredWeeklyLineup, fetchSelectablePlayerById, fetchSelectableTeamById, fetchDetailedGameStatsForEntity, StoredLineupData } from '../../services/lineupFetchingService';
+import { fetchStoredWeeklyLineup, fetchSelectablePlayerById, fetchSelectableTeamById, fetchDetailedGameStatsForEntity } from '../../services/lineupFetchingService';
 import type { SelectablePlayer, SelectableTeam, PositionKey } from '../../types/lineup';
 import Spinner from '../ui/Spinner';
 
@@ -112,43 +112,30 @@ const RecentScoringPlays: React.FC<RecentScoringPlaysProps> = ({
       const allPlayers = new Map<string, { entity: SelectablePlayer | SelectableTeam; leagues: { league: League; isCaptain: boolean }[] }>();
       
       for (const league of leagues) {
-        await new Promise<void>((resolve) => {
-          listenToStoredWeeklyLineup(
-            userId,
-            league.id,
-            selectedWeek,
-            async (lineupData: StoredLineupData) => {
-              if (lineupData.picks) {
-                for (const [positionKey, pick] of Object.entries(lineupData.picks)) {
-                  if (pick) {
-                    let entity: SelectablePlayer | SelectableTeam | null = null;
-                    
-                    if (pick.type === 'player') {
-                      entity = await fetchSelectablePlayerById(pick.id);
-                    } else {
-                      entity = await fetchSelectableTeamById(pick.id, positionKey as PositionKey);
-                    }
-
-                    if (entity?.gameIdForWeek) {
-                      const isCaptain = pick.type === 'player' && lineupData.captainPlayerId === pick.id;
-                      
-                      if (!allPlayers.has(entity.id)) {
-                        allPlayers.set(entity.id, { entity, leagues: [] });
-                      }
-                      
-                      allPlayers.get(entity.id)!.leagues.push({ league, isCaptain });
-                    }
+        try {
+          const lineupData = await fetchStoredWeeklyLineup(userId, league.id, selectedWeek);
+          if (lineupData?.picks) {
+            for (const [positionKey, pick] of Object.entries(lineupData.picks)) {
+              if (pick) {
+                let entity: SelectablePlayer | SelectableTeam | null = null;
+                if (pick.type === 'player') {
+                  entity = await fetchSelectablePlayerById(pick.id);
+                } else {
+                  entity = await fetchSelectableTeamById(pick.id, positionKey as PositionKey);
+                }
+                if (entity?.gameIdForWeek) {
+                  const isCaptain = pick.type === 'player' && lineupData.captainPlayerId === pick.id;
+                  if (!allPlayers.has(entity.id)) {
+                    allPlayers.set(entity.id, { entity, leagues: [] });
                   }
+                  allPlayers.get(entity.id)!.leagues.push({ league, isCaptain });
                 }
               }
-              resolve();
-            },
-            (error) => {
-              console.error(`Error fetching lineup for league ${league.id}:`, error);
-              resolve();
             }
-          );
-        });
+          }
+        } catch (err) {
+          console.error(`Error fetching lineup for league ${league.id}:`, err);
+        }
       }
 
       // Process scoring plays for each unique player

@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase/firebase';
+import { initMessaging } from '../../firebase/firebase';
 import ComponentCard from '../common/ComponentCard';
 import Button from '../ui/button/Button';
 import Switch from '../form/switch/Switch';
@@ -70,9 +71,8 @@ export const NotificationPreferencesComponent: React.FC = () => {
           const permission = await Notification.requestPermission();
           if (permission === 'granted') {
             // Initialize FCM token
-            const { initMessaging } = await import('../../firebase/firebase');
             await initMessaging(user?.uid || null);
-            console.log('FCM token initialized successfully');
+            if (import.meta.env.DEV) console.log('FCM token initialized successfully');
           }
         }
       } catch (error) {

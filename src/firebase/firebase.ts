@@ -86,7 +86,7 @@ export async function initMessaging(uid: string | null) {
     const { getMessaging, onMessage } = await import('firebase/messaging');
     const messagingInstance = getMessaging(app);
     onMessage(messagingInstance, (payload) => {
-      console.log('Received foreground message:', payload);
+      if (import.meta.env.DEV) console.log('Received foreground message:', payload);
       
       // Show notification when app is in foreground
       // Only show if the page is NOT visible (to avoid duplication with service worker)

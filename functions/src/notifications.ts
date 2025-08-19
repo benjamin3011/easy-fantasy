@@ -6,6 +6,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { config, REGION, secrets } from './config';
 import { calculateCurrentNFLWeek } from './common';
 import type { NotificationPreferences, FirestoreUser } from './types';
+import { logger } from 'firebase-functions/v2';
 
 // Initialize messaging if not already done
 const messaging = admin.messaging();
@@ -85,7 +86,7 @@ async function persistUserNotification(
         readAt: null,
       });
   } catch (e) {
-    console.warn('Failed to persist user notification', userId, type, e);
+    logger.warn('Failed to persist user notification', { userId, type, error: e });
   }
 }
 
@@ -102,7 +103,7 @@ interface LineupDeadlineAlert {
 
 // Helper function to perform the lineup deadline check logic
 async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsSent: number; message: string }> {
-  console.log('Starting lineup deadline check...');
+  logger.info('Starting lineup deadline check...');
   
   try {
     const currentWeek = calculateCurrentNFLWeek();
@@ -116,7 +117,7 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
         .get();
       
       if (!scheduleDoc.exists) {
-        console.log('No schedule found for current week');
+        logger.info('No schedule found for current week');
         return { success: false, alertsSent: 0, message: 'No schedule found for current week' };
       }
       
@@ -133,11 +134,11 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
       });
       
       if (upcomingGames.length === 0) {
-        console.log('No games starting in the next hour');
+        logger.info('No games starting in the next hour');
         return { success: true, alertsSent: 0, message: 'No games starting in the next hour' };
       }
       
-      console.log(`Found ${upcomingGames.length} games starting soon`);
+      logger.info(`Found ${upcomingGames.length} games starting soon`);
       
       // Get all users with notification preferences
       const usersSnapshot = await admin.firestore()
@@ -146,7 +147,7 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
         .where('notificationPreferences.lineupDeadlineAlerts', '==', true)
         .get();
       
-      console.log(`Found ${usersSnapshot.docs.length} users with notifications enabled`);
+      logger.info(`Found ${usersSnapshot.docs.length} users with notifications enabled`);
       
       const alerts: LineupDeadlineAlert[] = [];
       
@@ -155,15 +156,15 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
         const userData = userDoc.data() as FirestoreUser;
         const userId = userDoc.id;
         
-        console.log(`Checking user ${userId}, has FCM token: ${!!userData.fcmToken}`);
+        logger.debug(`Checking user ${userId}, has FCM token: ${!!userData.fcmToken}`);
         
         if (!userData.fcmToken) {
-          console.log(`Skipping user ${userId} - no FCM token`);
+          logger.debug(`Skipping user ${userId} - no FCM token`);
           continue;
         }
         
         const notificationMinutes = userData.notificationPreferences?.lineupDeadlineMinutes || 30;
-        console.log(`User ${userId} notification window: ${notificationMinutes} minutes`);
+        logger.debug(`User ${userId} notification window: ${notificationMinutes} minutes`);
         
         // Get user's leagues
         const leaguesSnapshot = await admin.firestore()
@@ -171,7 +172,7 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
           .where('memberUids', 'array-contains', userId)
           .get();
         
-        console.log(`User ${userId} is in ${leaguesSnapshot.docs.length} leagues`);
+        logger.debug(`User ${userId} is in ${leaguesSnapshot.docs.length} leagues`);
         
         for (const leagueDoc of leaguesSnapshot.docs) {
           const leagueData = leagueDoc.data();
@@ -189,7 +190,7 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
           const lineupData = lineupDoc.data();
           const isComplete = lineupData?.isComplete === true;
           
-          console.log(`User ${userId} in league ${leagueId}: lineup exists: ${lineupDoc.exists}, isComplete: ${isComplete}`);
+          logger.debug(`User ${userId} in league ${leagueId}: lineup exists: ${lineupDoc.exists}, isComplete: ${isComplete}`);
           
           if (!isComplete) {
             // Check which games this user needs to set lineups for
@@ -200,11 +201,11 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
               const timeUntilGame = gameTime - now;
               const minutesUntilGame = Math.floor(timeUntilGame / 60);
               
-              console.log(`Game ${game.gameID}: ${minutesUntilGame} minutes until start, user wants alerts ${notificationMinutes} minutes before`);
+              logger.debug(`Game ${game.gameID}: ${minutesUntilGame} minutes until start, user wants alerts ${notificationMinutes} minutes before`);
               
               // Send notification if within user's preferred time window
               if (minutesUntilGame <= notificationMinutes) {
-                console.log(`Creating alert for user ${userId} in league ${leagueId} for game ${game.gameID}`);
+                logger.debug(`Creating alert for user ${userId} in league ${leagueId} for game ${game.gameID}`);
                 // Determine missing positions (simplified - could be more specific)
                 const picks = lineupData?.picks || {};
                 const allPositions = ['QB', 'RB', 'WR', 'TE', 'PassingOffense', 'RushingOffense', 'Defense', 'SpecialTeams'];
@@ -227,7 +228,7 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
       }
       
       // Send notifications
-      console.log(`Sending ${alerts.length} lineup deadline alerts`);
+      logger.info(`Sending ${alerts.length} lineup deadline alerts`);
       
       const notificationPromises = alerts.map(async (alert) => {
         try {
@@ -273,15 +274,15 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
           
           try {
             await messaging.send(message);
-            console.log(`Sent lineup deadline alert (FCM) to user ${alert.userId} for league ${alert.leagueName}`);
+            logger.info(`Sent lineup deadline alert (FCM) to user ${alert.userId} for league ${alert.leagueName}`);
           } catch (fcmError: unknown) {
             const msg = (fcmError as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
             if (msg === 'messaging/registration-token-not-registered') {
               // Clean up invalid token
               await admin.firestore().collection('users').doc(alert.userId).set({ fcmToken: admin.firestore.FieldValue.delete() }, { merge: true });
-              console.warn(`Removed invalid FCM token for user ${alert.userId}`);
+              logger.warn(`Removed invalid FCM token for user ${alert.userId}`);
             } else {
-              console.warn(`FCM send failed for user ${alert.userId}:`, fcmError);
+              logger.warn('FCM send failed for user', { userId: alert.userId, error: fcmError });
             }
           }
           
@@ -301,17 +302,17 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
           );
           
         } catch (error) {
-          console.error(`Failed to send notification to user ${alert.userId}:`, error);
+          logger.error(`Failed to send notification to user ${alert.userId}:`, { error });
         }
       });
       
       await Promise.all(notificationPromises);
-      console.log('Lineup deadline check completed');
+      logger.info('Lineup deadline check completed');
       
       return { success: true, alertsSent: alerts.length, message: `Sent ${alerts.length} lineup deadline alerts` };
       
     } catch (error) {
-      console.error('Error in lineup deadline check:', error);
+      logger.error('Error in lineup deadline check:', { error });
       return { success: false, alertsSent: 0, message: `Error: ${error}` };
     }
 }
@@ -347,11 +348,11 @@ export const triggerLineupDeadlineCheck = onCall(
     
     try {
       // Manually trigger the lineup deadline check
-      console.log('Manual trigger for lineup deadline check');
+      logger.info('Manual trigger for lineup deadline check');
       const result = await performLineupDeadlineCheck();
       return result;
     } catch (error) {
-      console.error('Error triggering lineup deadline check:', error);
+      logger.error('Error triggering lineup deadline check:', { error });
       throw new HttpsError('internal', 'Failed to trigger lineup deadline check');
     }
   }
@@ -400,18 +401,18 @@ export async function sendWebPushToUser(userId: string, payload: Record<string, 
   const userSnap = await admin.firestore().collection('users').doc(userId).get();
   const saved = userSnap.data()?.webPushSubscription as { endpoint?: string; keys?: { p256dh?: string; auth?: string } } | undefined;
   if (!saved || typeof saved.endpoint !== 'string' || !saved.endpoint) {
-    console.warn('WebPush: missing endpoint for user', userId);
+    logger.warn('WebPush: missing endpoint for user', { userId });
     return;
   }
   if (!saved.keys?.p256dh || !saved.keys?.auth) {
-    console.warn('WebPush: missing keys for user', userId);
+    logger.warn('WebPush: missing keys for user', { userId });
     return;
   }
   const sub = { endpoint: saved.endpoint, keys: { p256dh: saved.keys.p256dh, auth: saved.keys.auth } } as unknown as PushSubscription;
   try {
     await webpush.sendNotification(sub, JSON.stringify(payload));
   } catch (e) {
-    console.warn('WebPush send failed', e as Error);
+    logger.warn('WebPush send failed', e as Error);
   }
 }
 
@@ -469,15 +470,15 @@ export const sendPerformanceAlert = onCall(
         };
         try {
           await messaging.send(message);
-          console.log(`Sent performance alert (FCM) to user ${request.auth.uid}: ${title}`);
+          logger.info(`Sent performance alert (FCM) to user ${request.auth.uid}: ${title}`);
         } catch (err: unknown) {
           const msg = (err as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
           if (msg === 'messaging/registration-token-not-registered') {
             // Clean up invalid token to prevent future failures
             await admin.firestore().collection('users').doc(request.auth.uid).set({ fcmToken: admin.firestore.FieldValue.delete() }, { merge: true });
-            console.warn(`Removed invalid FCM token for user ${request.auth.uid}`);
+            logger.warn(`Removed invalid FCM token for user ${request.auth.uid}`);
           } else {
-            console.warn('FCM send failed:', err);
+            logger.warn('FCM send failed', err);
           }
         }
       }
@@ -489,7 +490,7 @@ export const sendPerformanceAlert = onCall(
       return { success: true, message: 'Performance alert dispatched' };
       
     } catch (error) {
-      console.error('Error sending performance alert:', error);
+      logger.error('Error sending performance alert:', { error });
       throw new HttpsError('internal', 'Failed to send performance alert');
     }
   }
@@ -554,14 +555,14 @@ export const sendInjuryAlert = onCall(
         };
         try {
           await messaging.send(message);
-          console.log(`Sent injury alert (FCM) to user ${request.auth.uid}: ${playerName} - ${injuryStatus}`);
+          logger.info(`Sent injury alert (FCM) to user ${request.auth.uid}: ${playerName} - ${injuryStatus}`);
         } catch (err: unknown) {
           const msg = (err as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
           if (msg === 'messaging/registration-token-not-registered') {
             await admin.firestore().collection('users').doc(request.auth.uid).set({ fcmToken: admin.firestore.FieldValue.delete() }, { merge: true });
-            console.warn(`Removed invalid FCM token for user ${request.auth.uid}`);
+            logger.warn(`Removed invalid FCM token for user ${request.auth.uid}`);
           } else {
-            console.warn('FCM send failed:', err);
+            logger.warn('FCM send failed', err);
           }
         }
       }
@@ -572,7 +573,7 @@ export const sendInjuryAlert = onCall(
       return { success: true, message: 'Injury alert dispatched' };
       
     } catch (error) {
-      console.error('Error sending injury alert:', error);
+      logger.error('Error sending injury alert:', { error });
       throw new HttpsError('internal', 'Failed to send injury alert');
     }
   }
@@ -638,16 +639,16 @@ export const sendAchievementAlert = onCall(
       
       try {
         await messaging.send(message);
-        console.log(`Sent achievement alert to user ${request.auth.uid}: ${achievementType}`);
+        logger.info(`Sent achievement alert to user ${request.auth.uid}: ${achievementType}`);
       } catch (err: unknown) {
         const msg = (err as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
         if (msg === 'messaging/registration-token-not-registered') {
           // Clean up invalid token to prevent future failures
           await admin.firestore().collection('users').doc(request.auth.uid).set({ fcmToken: admin.firestore.FieldValue.delete() }, { merge: true });
-          console.warn(`Removed invalid FCM token for user ${request.auth.uid}`);
+          logger.warn(`Removed invalid FCM token for user ${request.auth.uid}`);
           return { success: false, message: 'FCM token was invalid and has been removed. Please refresh the page to generate a new token.' };
         } else {
-          console.warn('FCM send failed:', err);
+          logger.warn('FCM send failed', err);
           throw err; // Re-throw non-token errors
         }
       }
@@ -657,7 +658,7 @@ export const sendAchievementAlert = onCall(
       return { success: true, message: 'Achievement alert sent' };
       
     } catch (error) {
-      console.error('Error sending achievement alert:', error);
+      logger.error('Error sending achievement alert:', { error });
       throw new HttpsError('internal', 'Failed to send achievement alert');
     }
   }
@@ -681,7 +682,7 @@ export const updateNotificationPreferences = onCall(
       
       return { success: true, message: 'Notification preferences updated' };
     } catch (error) {
-      console.error('Error updating notification preferences:', error);
+      logger.error('Error updating notification preferences:', { error });
       throw new HttpsError('internal', 'Failed to update notification preferences');
     }
   }

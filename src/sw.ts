@@ -14,9 +14,12 @@ cleanupOutdatedCaches();
 
 // Handle SKIP_WAITING message
 self.addEventListener('message', (event) => {
-  console.log('SW received message:', event.data);
+  // Dev-only logs to avoid noise in production
+  // eslint-disable-next-line no-undef
+  if (typeof self !== 'undefined' && (self as any).ENV !== 'production') console.log('SW received message:', event.data);
   if (event.data && event.data.type === 'SKIP_WAITING') {
-    console.log('SW: Skipping waiting and claiming clients');
+    // eslint-disable-next-line no-undef
+    if (typeof self !== 'undefined' && (self as any).ENV !== 'production') console.log('SW: Skipping waiting and claiming clients');
     self.skipWaiting();
     self.clients.claim();
   }
@@ -24,13 +27,15 @@ self.addEventListener('message', (event) => {
 
 // Handle install event
 self.addEventListener('install', () => {
-  console.log('SW: Installing');
+  // eslint-disable-next-line no-undef
+  if (typeof self !== 'undefined' && (self as any).ENV !== 'production') console.log('SW: Installing');
   // Don't skip waiting automatically - wait for message
 });
 
 // Handle activate event
 self.addEventListener('activate', (event) => {
-  console.log('SW: Activating');
+  // eslint-disable-next-line no-undef
+  if (typeof self !== 'undefined' && (self as any).ENV !== 'production') console.log('SW: Activating');
   // Claim clients when activated
   event.waitUntil(self.clients.claim());
 });
@@ -152,4 +157,5 @@ registerRoute(
   })
 );
 
-console.log('SW: Custom service worker loaded'); 
+// eslint-disable-next-line no-undef
+if (typeof self !== 'undefined' && (self as any).ENV !== 'production') console.log('SW: Custom service worker loaded'); 

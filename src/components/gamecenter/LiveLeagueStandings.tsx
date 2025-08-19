@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { League } from '../../utils/leagues';
-import { listenToStoredWeeklyLineup, fetchSelectablePlayerById, fetchSelectableTeamById, fetchDetailedGameStatsForEntity, StoredLineupData } from '../../services/lineupFetchingService';
+import { fetchStoredWeeklyLineup, fetchSelectablePlayerById, fetchSelectableTeamById, fetchDetailedGameStatsForEntity } from '../../services/lineupFetchingService';
 import type { SelectablePlayer, SelectableTeam, PositionKey } from '../../types/lineup';
 import Spinner from '../ui/Spinner';
 
@@ -47,17 +47,13 @@ const LiveLeagueStandings: React.FC<LiveLeagueStandingsProps> = ({
     league: League, 
     week: number
   ): Promise<{ points: number; isCaptainActive: boolean; captainPlayerId?: string }> => {
-    return new Promise((resolve) => {
-      listenToStoredWeeklyLineup(
-        memberUid,
-        league.id,
-        week,
-        async (lineupData: StoredLineupData) => {
+    try {
+      const lineupData = await fetchStoredWeeklyLineup(memberUid, league.id, week);
           let totalPoints = 0;
           let isCaptainActive = false;
           let captainPlayerId: string | undefined;
 
-          if (lineupData.picks) {
+          if (lineupData?.picks) {
             const pointsPromises = Object.entries(lineupData.picks).map(async ([positionKey, pick]) => {
               if (pick) {
                 try {
@@ -122,18 +118,15 @@ const LiveLeagueStandings: React.FC<LiveLeagueStandingsProps> = ({
             await Promise.all(pointsPromises);
           }
 
-          resolve({ 
-            points: totalPoints, 
-            isCaptainActive,
-            captainPlayerId: isCaptainActive ? captainPlayerId : undefined
-          });
-        },
-        (error) => {
-          console.error(`Error fetching lineup for ${memberUid} in league ${league.id}:`, error);
-          resolve({ points: 0, isCaptainActive: false });
-        }
-      );
-    });
+      return { 
+        points: totalPoints, 
+        isCaptainActive,
+        captainPlayerId: isCaptainActive ? captainPlayerId : undefined
+      };
+    } catch (error) {
+      console.error(`Error fetching lineup for ${memberUid} in league ${league.id}:`, error);
+      return { points: 0, isCaptainActive: false };
+    }
   };
 
   // Fetch standings for all leagues

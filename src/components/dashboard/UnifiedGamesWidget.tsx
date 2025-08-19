@@ -3,9 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import { useLeagueContext } from '../../context/LeagueContext';
 import { 
-  listenToStoredWeeklyLineup, 
-  StoredLineupData, 
-
+  fetchStoredWeeklyLineup,
   fetchDetailedGameStatsBatch,
   fetchSelectablePlayerById,
   fetchSelectableTeamById,
@@ -248,98 +246,72 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
           return;
         }
 
-        // Get user lineup from selected league (if available)
+        // Get user lineup from selected league (one-time fetch to avoid lingering listeners)
         const userLineupData: Record<string, { player: SelectableEntity; isCaptain: boolean; position: string; type: 'player' | 'team' }> = {};
-        
         if (selectedLeagueId) {
-          await new Promise<void>((resolve) => {
-            listenToStoredWeeklyLineup(
-              user.uid,
-              selectedLeagueId,
-              currentNflWeek,
-              async (lineupData: StoredLineupData) => {
-              if (lineupData.picks) {
-                // Collect picks that need API calls (missing stored names)
-                const picksNeedingApiCalls: Array<{pick: { id: string; type: 'player' | 'team'; name?: string; teamAbbreviation?: string }, positionKey: string, key: string}> = [];
-                
-                for (const [positionKey, pick] of Object.entries(lineupData.picks)) {
-                  if (pick) {
-                    const key = `${pick.id}_${pick.type}`;
-                    
-                    if (!userLineupData[key]) {
-                      // NEW: Use stored names if available (backend optimization)
-                      if (pick.name && pick.teamAbbreviation) {
-                        // Create entity from stored data - no API call needed!
-                        const entity: SelectableEntity = {
-                          id: pick.id,
-                          name: pick.name,
-                          teamAbbreviation: pick.teamAbbreviation,
-                          entityType: pick.type,
-                          fullTeamName: pick.teamAbbreviation, // Fallback
-                          position: pick.type === 'player' ? positionKey : positionKey,
-                          headshotUrl: '',
-                          actualPPG: 0,
-                          usageCount: 0,
-                          injuryStatus: 'Healthy' as unknown as InjuryStatus,
-                          byeWeek: 0,
-                          opponentForWeek: undefined,
-                          gameTimeEpochForWeek: undefined,
-                          gameIdForWeek: undefined,
-                          actualFantasyPoints: undefined,
-                          nextOpponent: undefined,
-                          gameTimeEpoch: undefined,
-                          gameId: undefined,
-                          rawSeasonStats: undefined
-                        };
-                        
-                        userLineupData[key] = {
-                          player: entity,
-                          isCaptain: lineupData.captainPlayerId === pick.id,
-                          position: pick.type === 'player' ? positionKey : positionKey,
-                          type: pick.type
-                        };
-                      } else {
-                        // Fallback: API call needed for old lineups without stored names
-                        picksNeedingApiCalls.push({ pick, positionKey, key });
-                      }
-                    }
+          const lineupData = await fetchStoredWeeklyLineup(user.uid, selectedLeagueId, currentNflWeek, season);
+          if (lineupData?.picks) {
+            // Collect picks that need API calls (missing stored names)
+            const picksNeedingApiCalls: Array<{pick: { id: string; type: 'player' | 'team'; name?: string; teamAbbreviation?: string }, positionKey: string, key: string}> = [];
+            for (const [positionKey, pick] of Object.entries(lineupData.picks)) {
+              if (pick) {
+                const key = `${pick.id}_${pick.type}`;
+                if (!userLineupData[key]) {
+                  if (pick.name && pick.teamAbbreviation) {
+                    const entity: SelectableEntity = {
+                      id: pick.id,
+                      name: pick.name,
+                      teamAbbreviation: pick.teamAbbreviation,
+                      entityType: pick.type,
+                      fullTeamName: pick.teamAbbreviation,
+                      position: pick.type === 'player' ? positionKey : positionKey,
+                      headshotUrl: '',
+                      actualPPG: 0,
+                      usageCount: 0,
+                      injuryStatus: 'Healthy' as unknown as InjuryStatus,
+                      byeWeek: 0,
+                      opponentForWeek: undefined,
+                      gameTimeEpochForWeek: undefined,
+                      gameIdForWeek: undefined,
+                      actualFantasyPoints: undefined,
+                      nextOpponent: undefined,
+                      gameTimeEpoch: undefined,
+                      gameId: undefined,
+                      rawSeasonStats: undefined
+                    };
+                    userLineupData[key] = {
+                      player: entity,
+                      isCaptain: lineupData.captainPlayerId === pick.id,
+                      position: pick.type === 'player' ? positionKey : positionKey,
+                      type: pick.type
+                    };
+                  } else {
+                    picksNeedingApiCalls.push({ pick, positionKey, key });
                   }
                 }
-                
-                // Batch process picks that need API calls
-                if (picksNeedingApiCalls.length > 0) {
-                  const entityPromises = picksNeedingApiCalls.map(async ({ pick, positionKey, key }) => {
-                    let entity: SelectablePlayer | SelectableTeam | null = null;
-                    
-                    if (pick.type === 'player') {
-                      entity = await fetchSelectablePlayerById(pick.id);
-                    } else {
-                      entity = await fetchSelectableTeamById(pick.id, positionKey as PositionKey);
-                    }
-                    
-                    if (entity) {
-                      userLineupData[key] = {
-                        player: entity,
-                        isCaptain: lineupData.captainPlayerId === pick.id,
-                        position: pick.type === 'player' ? (entity as SelectablePlayer).position : positionKey,
-                        type: pick.type
-                      };
-                    }
-                    return entity;
-                  });
-                  
-                  // Execute remaining API calls in parallel
-                  await Promise.all(entityPromises);
-                }
               }
-              resolve();
-            },
-            (error) => {
-              console.error(`Error fetching lineup for league ${selectedLeagueId}:`, error);
-              resolve();
             }
-          );
-        });
+            if (picksNeedingApiCalls.length > 0) {
+              const entityPromises = picksNeedingApiCalls.map(async ({ pick, positionKey, key }) => {
+                let entity: SelectablePlayer | SelectableTeam | null = null;
+                if (pick.type === 'player') {
+                  entity = await fetchSelectablePlayerById(pick.id);
+                } else {
+                  entity = await fetchSelectableTeamById(pick.id, positionKey as PositionKey);
+                }
+                if (entity) {
+                  userLineupData[key] = {
+                    player: entity,
+                    isCaptain: lineupData.captainPlayerId === pick.id,
+                    position: pick.type === 'player' ? (entity as SelectablePlayer).position : positionKey,
+                    type: pick.type
+                  };
+                }
+                return entity;
+              });
+              await Promise.all(entityPromises);
+            }
+          }
         }
 
         // Game scores are optional - don't block loading on them
@@ -493,32 +465,14 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
           };
         });
 
-        // Sort games: first by time, then by user players within same time slot
+        // Sort games: first by time, prioritize games with user players, then by teams
         processedGames.sort((a, b) => {
           const timeA = Number(a.gameTime_epoch);
           const timeB = Number(b.gameTime_epoch);
           
           // Primary sort: by game start time
-          if (timeA !== timeB) {
-            return timeA - timeB;
-          }
-          
-          // Secondary sort: within same time slot, prioritize games with user players
-          if (a.hasUserPlayers && !b.hasUserPlayers) return -1;
-          if (!a.hasUserPlayers && b.hasUserPlayers) return 1;
-          
-          // Tertiary sort: alphabetical by team names for consistency
-          const teamNameA = `${a.away} @ ${a.home}`;
-          const teamNameB = `${b.away} @ ${b.home}`;
-          return teamNameA.localeCompare(teamNameB);
-        });
-
-        // Update games with enhanced data (stats + news)
-        processedGames.sort((a, b) => {
-          const timeA = Number(a.gameTime_epoch);
-          const timeB = Number(b.gameTime_epoch);
-          
           if (timeA !== timeB) return timeA - timeB;
+          // Secondary sort: within same time slot, prioritize games with user players
           if (a.hasUserPlayers && !b.hasUserPlayers) return -1;
           if (!a.hasUserPlayers && b.hasUserPlayers) return 1;
           

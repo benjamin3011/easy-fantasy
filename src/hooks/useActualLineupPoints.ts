@@ -31,7 +31,7 @@ export function useActualLineupPoints(
     queryKey: ['weekGameStatus', week, season],
     queryFn: async () => {
       try {
-        console.log(`🔍 Checking game status for week ${week}, season ${season}`);
+        if (import.meta.env.DEV) console.log(`🔍 Checking game status for week ${week}, season ${season}`);
         
         // First, get all games for this week to see what we have
         const gameScoresRef = collection(db, 'gameScores');
@@ -42,10 +42,10 @@ export function useActualLineupPoints(
         );
         
         const allGamesSnapshot = await getDocs(allGamesQuery);
-        console.log(`📊 Found ${allGamesSnapshot.size} games for week ${week}`);
+        if (import.meta.env.DEV) console.log(`📊 Found ${allGamesSnapshot.size} games for week ${week}`);
         
         if (allGamesSnapshot.empty) {
-          console.log(`❌ No games found for week ${week}, season ${season}`);
+          if (import.meta.env.DEV) console.log(`❌ No games found for week ${week}, season ${season}`);
           return false;
         }
 
@@ -54,7 +54,7 @@ export function useActualLineupPoints(
         allGamesSnapshot.forEach(doc => {
           const gameData = doc.data();
           const statusCode = gameData.gameStatusCode;
-          console.log(`🎮 Game ${doc.id}: statusCode=${statusCode}, status="${gameData.gameStatus}", teams=${gameData.awayTeam} @ ${gameData.homeTeam}`);
+          if (import.meta.env.DEV) console.log(`🎮 Game ${doc.id}: statusCode=${statusCode}, status="${gameData.gameStatus}", teams=${gameData.awayTeam} @ ${gameData.homeTeam}`);
           
           // Game has started if statusCode > 0 (1=live, 2=final)
           if (statusCode > 0) {
@@ -62,7 +62,7 @@ export function useActualLineupPoints(
           }
         });
         
-        console.log(`🎯 Has any game started: ${hasStarted}`);
+        if (import.meta.env.DEV) console.log(`🎯 Has any game started: ${hasStarted}`);
         return hasStarted;
       } catch (error) {
         console.error('❌ Error checking game status:', error);
@@ -76,13 +76,13 @@ export function useActualLineupPoints(
   // Fetch actual points for all entities when games have started
   useEffect(() => {
     if (!hasGameStarted || lineupEntities.length === 0) {
-      console.log(`⏸️ Skipping actual points fetch: hasGameStarted=${hasGameStarted}, entities=${lineupEntities.length}`);
+      if (import.meta.env.DEV) console.log(`⏸️ Skipping actual points fetch: hasGameStarted=${hasGameStarted}, entities=${lineupEntities.length}`);
       setActualPoints({});
       return;
     }
 
     const fetchAllActualPoints = async () => {
-      console.log(`🚀 Fetching actual points for ${lineupEntities.length} entities`);
+      if (import.meta.env.DEV) console.log(`🚀 Fetching actual points for ${lineupEntities.length} entities`);
       setIsLoading(true);
       setError(null);
       
@@ -92,12 +92,12 @@ export function useActualLineupPoints(
         // Get weekly schedule to know which teams played in which games (same as UnifiedGamesWidget)
         const schedule = await fetchWeeklySchedule(season.toString(), week);
         if (!schedule || !schedule.games || schedule.games.length === 0) {
-          console.log(`❌ No schedule found for week ${week}, season ${season}`);
+          if (import.meta.env.DEV) console.log(`❌ No schedule found for week ${week}, season ${season}`);
           setError('No schedule found for this week');
           return;
         }
         
-        console.log(`🎮 Found ${schedule.games.length} games in schedule for week ${week}`);
+        if (import.meta.env.DEV) console.log(`🎮 Found ${schedule.games.length} games in schedule for week ${week}`);
         
         // For each entity, find their game and get actual points
         await Promise.all(
@@ -105,7 +105,7 @@ export function useActualLineupPoints(
             try {
               const entityType = entity.entityType === 'player' ? 'player' : 'team';
               const entityName = entity.name || entity.id;
-              console.log(`📊 Fetching ${entityType} ${entity.id} (${entityName}) points for position ${positionKey}`);
+              if (import.meta.env.DEV) console.log(`📊 Fetching ${entityType} ${entity.id} (${entityName}) points for position ${positionKey}`);
               
               // Find the game this entity played in (same logic as UnifiedGamesWidget)
               const entityGame = schedule.games.find((game: GameInfoFromSchedule) => {
@@ -114,12 +114,12 @@ export function useActualLineupPoints(
               });
               
               if (!entityGame) {
-                console.log(`⚠️ No game found for ${entity.teamAbbreviation} (${entityName})`);
+                if (import.meta.env.DEV) console.log(`⚠️ No game found for ${entity.teamAbbreviation} (${entityName})`);
                 newActualPoints[entity.id] = 0;
                 return;
               }
               
-              console.log(`🎯 ${entityName} plays in game: ${entityGame.away} @ ${entityGame.home} (${entityGame.gameID})`);
+              if (import.meta.env.DEV) console.log(`🎯 ${entityName} plays in game: ${entityGame.away} @ ${entityGame.home} (${entityGame.gameID})`);
               
               // Fetch actual points from the specific game
               const actualFantasyPoints = await fetchActualFantasyPointsForGame(
@@ -130,7 +130,7 @@ export function useActualLineupPoints(
               );
               
               const points = actualFantasyPoints || 0;
-              console.log(`💰 ${entity.id} (${entityName}): ${points} points from game ${entityGame.gameID}`);
+              if (import.meta.env.DEV) console.log(`💰 ${entity.id} (${entityName}): ${points} points from game ${entityGame.gameID}`);
               newActualPoints[entity.id] = points;
               
             } catch (error) {
@@ -140,7 +140,7 @@ export function useActualLineupPoints(
           })
         );
         
-        console.log(`📈 Final actual points:`, newActualPoints);
+        if (import.meta.env.DEV) console.log(`📈 Final actual points:`, newActualPoints);
         setActualPoints(newActualPoints);
       } catch (error) {
         console.error('❌ Error fetching actual lineup points:', error);

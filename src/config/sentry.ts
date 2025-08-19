@@ -88,7 +88,7 @@ export const initializeSentry = () => {
       },
     });
 
-    console.log(`Sentry initialized for ${config.environment} environment`);
+    if (import.meta.env.DEV) console.log(`Sentry initialized for ${config.environment} environment`);
   } catch (error) {
     console.error('Failed to initialize Sentry:', error);
   }

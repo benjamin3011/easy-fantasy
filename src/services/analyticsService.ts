@@ -89,7 +89,7 @@ export async function fetchUserAnalytics(
     const weeklyLineups = await fetchUserWeeklyLineups(userId, leagueId, season);
     
     if (weeklyLineups.length === 0) {
-      console.log('⚠️ No lineup data found for analytics');
+      if (import.meta.env.DEV) console.log('⚠️ No lineup data found for analytics');
       return null;
     }
 

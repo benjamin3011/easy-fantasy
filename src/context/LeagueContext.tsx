@@ -69,7 +69,7 @@ export const LeagueProvider: React.FC<LeagueProviderProps> = ({ children }) => {
       
       // If no timestamp stored, or if it's a new day, update to current week
       if (!storedTimestamp) {
-        console.log('No week timestamp found, updating to current week:', currentWeek);
+        if (import.meta.env.DEV) console.log('No week timestamp found, updating to current week:', currentWeek);
         handleSetSelectedWeek(currentWeek);
       } else {
         const storedTime = parseInt(storedTimestamp, 10);
@@ -78,7 +78,7 @@ export const LeagueProvider: React.FC<LeagueProviderProps> = ({ children }) => {
         
         // If more than 24 hours old, update to current week
         if (now - storedTime >= oneDay) {
-          console.log('Week cache expired, updating to current week:', currentWeek);
+          if (import.meta.env.DEV) console.log('Week cache expired, updating to current week:', currentWeek);
           handleSetSelectedWeek(currentWeek);
         }
       }

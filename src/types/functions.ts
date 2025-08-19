@@ -108,14 +108,6 @@ export interface UpdateLeagueCaptainSettingsPayload {
   enableCaptainFeature: boolean;
   captainPointMultiplier: number;
 }
-// UpdateLeagueCaptainSettingsResult is GenericResult 
-
-// Payload for updateLeagueCaptainSettings
-export interface UpdateLeagueCaptainSettingsPayload {
-  leagueId: string;
-  enableCaptainFeature: boolean;
-  captainPointMultiplier: number;
-}
 
 // Payload for updateLeagueWeeklyTipsSettings
 export interface UpdateLeagueWeeklyTipsSettingsPayload {

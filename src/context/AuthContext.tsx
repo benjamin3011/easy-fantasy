@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, getIdTokenResult } from 'firebase/auth';
 import { auth, db } from '../firebase/firebase';
+import { initMessaging } from '../firebase/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { setUserContext, clearUserContext, addBreadcrumb } from '../config/sentry';
 
@@ -104,10 +105,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         
         // Initialize FCM token if notification permission is already granted
         if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-          import('../firebase/firebase').then(({ initMessaging }) => {
-            initMessaging(firebaseUser.uid).catch(err => {
-              console.warn('Failed to initialize FCM token:', err);
-            });
+          initMessaging(firebaseUser.uid).catch(err => {
+            console.warn('Failed to initialize FCM token:', err);
           });
         }
       } else {

@@ -758,25 +758,25 @@ export const updateUserWeeklyLineupScore = onCall(async (request: CallableReques
     try {
       const lineupSnap = await lineupDocRef.get();
       if (!lineupSnap.exists) {
-        console.log("Lineup doc not found");
+        logger.info("Lineup doc not found");
         return { success: false, message: "Lineup not found." };
       }
   
       const lineupData = lineupSnap.data() as FirestoreWeeklyLineup | undefined;
       if (!lineupData || !lineupData.picks) {
-        console.log("Lineup data missing");
+        logger.info("Lineup data missing");
         return { success: false, message: "Lineup data missing." };
       }
   
       const leagueDocRef = db.collection("leagues").doc(leagueId);
       const leagueSnap = await leagueDocRef.get();
       if (!leagueSnap.exists) {
-          console.error("League not found");
+          logger.error("League not found");
           throw new HttpsError("not-found", "League not found.");
       }
       const leagueConfig = leagueSnap.data() as FirestoreLeague | undefined;
       if (!leagueConfig) {
-          console.error("League data missing");
+          logger.error("League data missing");
           throw new HttpsError("internal", "League data missing.");
       }
   
@@ -793,7 +793,7 @@ export const updateUserWeeklyLineupScore = onCall(async (request: CallableReques
             const gameIdForPick = pick.gameIdForWeek;
   
             if (!gameIdForPick) {
-              console.warn("Missing gameIdForWeek");
+              logger.warn("Missing gameIdForWeek");
               return 0;
             }
   

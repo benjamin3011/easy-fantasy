@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { League } from '../../utils/leagues';
-import { listenToStoredWeeklyLineup, fetchSelectablePlayerById, fetchSelectableTeamById, fetchWeeklySchedule, fetchGameScores, StoredLineupData, GameInfoFromSchedule, GameScore } from '../../services/lineupFetchingService';
+import { fetchStoredWeeklyLineup, fetchSelectablePlayerById, fetchSelectableTeamById, fetchWeeklySchedule, fetchGameScores, GameInfoFromSchedule, GameScore } from '../../services/lineupFetchingService';
 import { APP_CONFIG } from '../../config/appConfig';
 import type { SelectablePlayer, SelectableTeam, PositionKey } from '../../types/lineup';
 import Spinner from '../ui/Spinner';
@@ -119,59 +119,42 @@ const LiveGameScores: React.FC<LiveGameScoresProps> = ({
       // Step 1: Get all user's players across leagues
       const userPlayers = new Map<string, UserPlayer[]>(); // gameId -> players
 
-      const lineupPromises = leagues.map(league => 
-        new Promise<void>((resolve) => {
-          listenToStoredWeeklyLineup(
-            userId,
-            league.id,
-            selectedWeek,
-            async (lineupData: StoredLineupData) => {
-              if (lineupData.picks) {
-                for (const [positionKey, pick] of Object.entries(lineupData.picks)) {
-                  if (pick) {
-                    let entity: SelectablePlayer | SelectableTeam | null = null;
-                    
-                    if (pick.type === 'player') {
-                      entity = await fetchSelectablePlayerById(pick.id);
-                    } else {
-                      entity = await fetchSelectableTeamById(pick.id, positionKey as PositionKey);
-                    }
-
-                    if (entity?.gameIdForWeek) {
-                      const isCaptain = pick.type === 'player' && lineupData.captainPlayerId === pick.id;
-                      
-                      const userPlayer: UserPlayer = {
-                        id: entity.id,
-                        name: entity.name,
-                        type: entity.entityType,
-                        teamId: entity.teamAbbreviation,
-                        isCaptain
-                      };
-
-                      if (!userPlayers.has(entity.gameIdForWeek)) {
-                        userPlayers.set(entity.gameIdForWeek, []);
-                      }
-                      
-                      // Avoid duplicates (same player in multiple leagues)
-                      const existingPlayers = userPlayers.get(entity.gameIdForWeek)!;
-                      if (!existingPlayers.some(p => p.id === userPlayer.id && p.type === userPlayer.type)) {
-                        existingPlayers.push(userPlayer);
-                      }
-                    }
+      for (const league of leagues) {
+        try {
+          const lineupData = await fetchStoredWeeklyLineup(userId, league.id, selectedWeek);
+          if (lineupData?.picks) {
+            for (const [positionKey, pick] of Object.entries(lineupData.picks)) {
+              if (pick) {
+                let entity: SelectablePlayer | SelectableTeam | null = null;
+                if (pick.type === 'player') {
+                  entity = await fetchSelectablePlayerById(pick.id);
+                } else {
+                  entity = await fetchSelectableTeamById(pick.id, positionKey as PositionKey);
+                }
+                if (entity?.gameIdForWeek) {
+                  const isCaptain = pick.type === 'player' && lineupData.captainPlayerId === pick.id;
+                  const userPlayer: UserPlayer = {
+                    id: entity.id,
+                    name: entity.name,
+                    type: entity.entityType,
+                    teamId: entity.teamAbbreviation,
+                    isCaptain
+                  };
+                  if (!userPlayers.has(entity.gameIdForWeek)) {
+                    userPlayers.set(entity.gameIdForWeek, []);
+                  }
+                  const existingPlayers = userPlayers.get(entity.gameIdForWeek)!;
+                  if (!existingPlayers.some(p => p.id === userPlayer.id && p.type === userPlayer.type)) {
+                    existingPlayers.push(userPlayer);
                   }
                 }
               }
-              resolve();
-            },
-            (error) => {
-              console.error(`Error fetching lineup for league ${league.id}:`, error);
-              resolve();
             }
-          );
-        })
-      );
-
-      await Promise.all(lineupPromises);
+          }
+        } catch (err) {
+          console.error(`Error fetching lineup for league ${league.id}:`, err);
+        }
+      }
 
       // Step 2: Get schedule data for the current week
       const season = parseInt(APP_CONFIG.CURRENT_NFL_SEASON, 10);
