@@ -4,7 +4,7 @@ import AppHeader from "./AppHeader";
 import Backdrop from "./Backdrop";
 import AppSidebar from "./AppSidebar";
 import MobileBottomTabBar from "../components/layout/MobileBottomTabBar";
-import DebugInfo from "../components/layout/DebugInfo";
+
 
 const LayoutContent: React.FC = () => {
   const { isExpanded, isHovered, isMobileOpen } = useSidebar();
@@ -21,16 +21,13 @@ const LayoutContent: React.FC = () => {
         } ${isMobileOpen ? "ml-0" : ""}`}
       >
         <AppHeader />
-        <div className="relative p-4 mx-auto max-w-(--breakpoint-2xl) md:p-6 md:pb-6">
+        <div className="relative mx-auto max-w-(--breakpoint-2xl)">
           <Outlet />
         </div>
       </div>
       
       {/* Mobile Bottom Tab Bar */}
       <MobileBottomTabBar />
-      
-      {/* Debug Info (triple-click to show) */}
-      <DebugInfo />
     </div>
   );
 };

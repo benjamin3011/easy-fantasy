@@ -101,6 +101,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           username: firebaseUser.displayName || undefined,
         });
         addBreadcrumb(`User authenticated: ${firebaseUser.email}`, 'auth', 'info');
+        
+        // Initialize FCM token if notification permission is already granted
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          import('../firebase/firebase').then(({ initMessaging }) => {
+            initMessaging(firebaseUser.uid).catch(err => {
+              console.warn('Failed to initialize FCM token:', err);
+            });
+          });
+        }
       } else {
         setCurrentUser(null);
         setIsAdmin(false);

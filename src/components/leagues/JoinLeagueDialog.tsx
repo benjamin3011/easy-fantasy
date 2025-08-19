@@ -1,5 +1,5 @@
 /* components/leagues/JoinLeagueDialog.tsx */
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useEffect } from "react";
 import { joinLeague } from "../../utils/leagues"; // Uses joinLeagueByCode callable
 import { useAuth } from "../../context/AuthContext";
 
@@ -13,6 +13,7 @@ interface Props {
     isOpen : boolean;
     onClose(): void;
     onSuccess(): void; // Consider: onSuccess(leagueId: string);
+    prefillCode?: string; // Optional pre-filled code for public league joins
 }
 
 // Reusable type guard (or place in a shared utils file)
@@ -20,13 +21,20 @@ function isFunctionsError(error: unknown): error is FunctionsError {
   return typeof error === 'object' && error !== null && 'code' in error && typeof (error as Record<string, unknown>).code === 'string';
 }
 
-export default function JoinLeagueDialog({ isOpen, onClose, onSuccess }: Props) {
+export default function JoinLeagueDialog({ isOpen, onClose, onSuccess, prefillCode }: Props) {
   const { user } = useAuth();
 
   const [code, setCode] = useState("");
   const [teamName, setTeamName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Set prefilled code when dialog opens
+  useEffect(() => {
+    if (isOpen && prefillCode) {
+      setCode(prefillCode);
+    }
+  }, [isOpen, prefillCode]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -99,7 +107,7 @@ export default function JoinLeagueDialog({ isOpen, onClose, onSuccess }: Props) 
               value={code}
               onChange={(e) => setCode(e.target.value)}
               required
-              disabled={loading}
+              disabled={loading || !!prefillCode}
             />
           </div>
 

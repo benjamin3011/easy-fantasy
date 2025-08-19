@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { League } from '../../../utils/leagues';
 import Button from '../../ui/button/Button';
 import Input from '../../form/input/InputField';
@@ -53,8 +53,18 @@ export default function SettingsTab({
   setAutoSaveInProgress
 }: SettingsTabProps) {
   
+  // Inline edit state for league name
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState(league.name);
+  const [savingName, setSavingName] = useState(false);
+
+  // Sync edited name when league changes
+  useEffect(() => {
+    setEditedName(league.name);
+  }, [league.name]);
+  
   // Auto-save utility function for simple settings
-  const autoSaveSetting = async (settingName: string, updateFunction: Function) => {
+  const autoSaveSetting = async (settingName: string, updateFunction: () => Promise<unknown>) => {
     if (!league) return;
     
     setAutoSaveInProgress(settingName);
@@ -69,16 +79,39 @@ export default function SettingsTab({
     }
   };
 
-  /** rename will optimistically update local state */
-  async function handleRename(newName: string) {
-    if (!league) return;
+  /** Handle inline name edit */
+  const handleNameSave = async () => {
+    if (!league || !editedName.trim() || editedName.trim() === league.name) {
+      setIsEditingName(false);
+      setEditedName(league.name);
+      return;
+    }
+    
+    setSavingName(true);
     try {
-      await renameLeague(league.id, newName.trim());
+      await renameLeague(league.id, editedName.trim());
       toast.success("League renamed");
+      setIsEditingName(false);
     } catch {
       toast.error("Rename failed");
+      setEditedName(league.name);
+    } finally {
+      setSavingName(false);
     }
-  }
+  };
+
+  const handleNameCancel = () => {
+    setIsEditingName(false);
+    setEditedName(league.name);
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleNameSave();
+    } else if (e.key === 'Escape') {
+      handleNameCancel();
+    }
+  };
 
   /** toggle privacy with auto-save */
   async function handleTogglePrivacy(checked: boolean) {
@@ -170,29 +203,7 @@ export default function SettingsTab({
     );
   }
 
-  // Feature status
-  const features = [
-    {
-      name: 'Captain Feature',
-      enabled: league.enableCaptainFeature ?? false,
-      description: `Point multiplier: ${league.captainPointMultiplier ?? 1.5}x`
-    },
-    {
-      name: 'Weekly Tips',
-      enabled: league.enableWeeklyTips ?? false,
-      description: 'Game predictions and leaderboard'
-    },
-    {
-      name: 'Auto-Lineup',
-      enabled: league.autoLineup?.enabled ?? false,
-      description: 'Automatic lineup generation'
-    },
-    {
-      name: 'Auto-Tips',
-      enabled: league.autoTips?.enabled ?? false,
-      description: 'Automatic game predictions'
-    }
-  ];
+
 
   const memberCount = league.members?.length ?? 0;
   const isPublic = league.isPublic ?? false;
@@ -205,7 +216,77 @@ export default function SettingsTab({
         <div className="space-y-3">
           <div className="flex justify-between items-center">
             <span className="text-gray-600 dark:text-gray-400">League Name</span>
-            <span className="font-medium text-gray-900 dark:text-white">{league.name}</span>
+            <div className="flex items-center gap-2">
+              {isEditingName ? (
+                <>
+                  <Input
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    onKeyDown={handleNameKeyDown}
+                    className="w-48 h-8 text-sm"
+                    autoFocus
+                    disabled={savingName}
+                  />
+                  <button
+                    onClick={handleNameSave}
+                    disabled={savingName || !editedName.trim() || editedName.trim() === league.name}
+                    className="text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 p-1 hover:bg-green-50 dark:hover:bg-green-900/20 rounded disabled:opacity-50"
+                    title="Save"
+                  >
+                    {savingName ? (
+                      <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleNameCancel}
+                    disabled={savingName}
+                    className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50"
+                    title="Cancel"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="font-medium text-gray-900 dark:text-white">{league.name}</span>
+                  <button
+                    onClick={() => setIsEditingName(true)}
+                    className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                    title="Edit League Name"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600 dark:text-gray-400">League ID</span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                {league.id}
+              </span>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(league.id);
+                  toast.success("League ID copied to clipboard!");
+                }}
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                title="Copy League ID"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-gray-600 dark:text-gray-400">Join Code</span>
@@ -213,9 +294,20 @@ export default function SettingsTab({
           </div>
           <div className="flex justify-between items-center">
             <span className="text-gray-600 dark:text-gray-400">Visibility</span>
-            <span className="font-medium text-gray-900 dark:text-white">
-              {isPublic ? 'Public' : 'Private'}
-            </span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                {(autoSaveInProgress === "League made public" || autoSaveInProgress === "League made private") && (
+                  <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                )}
+              </div>
+              <Switch 
+                labelPosition="left"
+                label={isPublic ? 'Public' : 'Private'}
+                checked={league.isPublic ?? false}
+                onChange={handleTogglePrivacy}
+                disabled={autoSaveInProgress === "League made public" || autoSaveInProgress === "League made private"}
+              />
+            </div>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-gray-600 dark:text-gray-400">Total Members</span>
@@ -227,64 +319,33 @@ export default function SettingsTab({
       {/* League Features */}
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">League Features</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {features.map((feature) => (
-            <div key={feature.name} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-              <div>
-                <div className="font-medium text-gray-900 dark:text-white">{feature.name}</div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">{feature.description}</div>
-              </div>
-              <div className={`w-3 h-3 rounded-full ${feature.enabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* League Name Section */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">League Name</h3>
-        <RenameForm current={league.name} onSave={handleRename} />
-      </div>
-
-      {/* Privacy Settings */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Privacy Settings</h3>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-gray-700 dark:text-gray-300">Public League</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Allow others to find and join this league</p>
-          </div>
-          <Switch
-            label=""
-            defaultChecked={league.isPublic ?? false}
-            onChange={handleTogglePrivacy}
-            disabled={autoSaveInProgress === "League made public" || autoSaveInProgress === "League made private"}
-          />
-        </div>
-      </div>
-
-      {/* Captain Settings */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Captain Feature</h3>
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-700 dark:text-gray-300">Enable Captain</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Allow players to select a captain for bonus points</p>
-            </div>
-            <Switch
-              label=""
-              defaultChecked={currentEnableCaptain}
-              onChange={handleCaptainToggle}
-            />
-          </div>
           
+          {/* Captain Feature */}
+          <div className="flex items-center justify-between py-3">
+            <div className="flex-1">
+              <div className="font-medium text-gray-900 dark:text-white">Captain Feature</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">Allow players to select a captain for bonus points</div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch
+                labelPosition="left"
+                label=""
+                checked={currentEnableCaptain}
+                onChange={handleCaptainToggle}
+              />
+            </div>
+          </div>
+
+          {/* Captain Multiplier (conditional) */}
           {currentEnableCaptain && (
-            <div className="space-y-3 pt-4 border-t border-gray-200 dark:border-gray-600">
-              <div>
-                <Label htmlFor="multiplier">Captain Point Multiplier</Label>
+            <div className="flex items-center justify-between py-2 pl-6 bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500">
+              <div className="flex items-center gap-4">
+                <div>
+                  <Label htmlFor="feature-multiplier" className="text-sm font-medium">Captain Point Multiplier</Label>
+                </div>
                 <Input
-                  id="multiplier"
+                  id="feature-multiplier"
                   type="number"
                   inputMode="numeric"
                   min="1"
@@ -292,67 +353,59 @@ export default function SettingsTab({
                   step="0.1"
                   value={currentCaptainMultiplier}
                   onChange={(e) => handleCaptainMultiplierChange(parseFloat(e.target.value))}
-                  className="mt-1"
+                  className="w-20 h-8"
                 />
-              </div>
-              
-              {hasUnsavedChanges && (
-                <div className="flex items-center gap-2">
+                {hasUnsavedChanges && (
                   <Button 
                     onClick={handleSaveCaptainSettings} 
                     size="sm" 
                     variant="primary"
                     disabled={savingChanges}
+                    className="h-8"
                   >
-                    {savingChanges ? "Saving..." : "Save Changes"}
+                    {savingChanges ? "Saving..." : "Save"}
                   </Button>
-                  <span className="text-xs text-amber-600 dark:text-amber-400">
-                    • Unsaved changes
-                  </span>
-                </div>
+                )}
+              </div>
+              {hasUnsavedChanges && (
+                <span className="text-xs text-amber-600 dark:text-amber-400 mr-4">
+                  • Unsaved changes
+                </span>
               )}
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Weekly Tips Settings */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Weekly Tips</h3>
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-gray-700 dark:text-gray-300">Enable Weekly Tips</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Allow members to make game predictions</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Switch
-              label=""
-              defaultChecked={currentEnableWeeklyTips}
-              onChange={handleWeeklyTipsToggle}
-              disabled={autoSaveInProgress === "Weekly tips enabled" || autoSaveInProgress === "Weekly tips disabled"}
-            />
-            {(autoSaveInProgress === "Weekly tips enabled" || autoSaveInProgress === "Weekly tips disabled") && (
-              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Auto-Assistant Settings */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Auto-Assistant</h3>
-        <div className="space-y-4">
-          
-          {/* Auto-Lineup */}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-700 dark:text-gray-300">🤖 Auto-Lineup</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Uses Quick Pick logic, 1 hour before games start</p>
+          {/* Weekly Tips */}
+          <div className="flex items-center justify-between py-3">
+            <div className="flex-1">
+              <div className="font-medium text-gray-900 dark:text-white">Weekly Tips</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">Allow members to make game predictions</div>
             </div>
             <div className="flex items-center gap-2">
               <Switch
+                labelPosition="left"
                 label=""
-                defaultChecked={currentAutoLineupEnabled}
+                checked={currentEnableWeeklyTips}
+                onChange={handleWeeklyTipsToggle}
+                disabled={autoSaveInProgress === "Weekly tips enabled" || autoSaveInProgress === "Weekly tips disabled"}
+              />
+              {(autoSaveInProgress === "Weekly tips enabled" || autoSaveInProgress === "Weekly tips disabled") && (
+                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              )}
+            </div>
+          </div>
+
+          {/* Auto-Lineup */}
+          <div className="flex items-center justify-between py-3">
+            <div className="flex-1">
+              <div className="font-medium text-gray-900 dark:text-white">🤖 Auto-Lineup</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">Uses Quick Pick logic, 1 hour before games start</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                labelPosition="left"
+                label=""
+                checked={currentAutoLineupEnabled}
                 onChange={handleAutoLineupToggle}
                 disabled={autoSaveInProgress === "Auto-lineup enabled" || autoSaveInProgress === "Auto-lineup disabled"}
               />
@@ -363,15 +416,16 @@ export default function SettingsTab({
           </div>
 
           {/* Auto-Tips */}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-700 dark:text-gray-300">🎯 Auto-Tips</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Follows betting favorites, 1 hour before games start</p>
+          <div className="flex items-center justify-between py-3">
+            <div className="flex-1">
+              <div className="font-medium text-gray-900 dark:text-white">🎯 Auto-Tips</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400">Follows betting favorites, 1 hour before games start</div>
             </div>
             <div className="flex items-center gap-2">
               <Switch
+                labelPosition="left"
                 label=""
-                defaultChecked={currentAutoTipsEnabled}
+                checked={currentAutoTipsEnabled}
                 onChange={handleAutoTipsToggle}
                 disabled={autoSaveInProgress === "Auto-tips enabled" || autoSaveInProgress === "Auto-tips disabled"}
               />
@@ -380,50 +434,10 @@ export default function SettingsTab({
               )}
             </div>
           </div>
+
         </div>
       </div>
     </div>
   );
 }
 
-// Rename Form Component
-function RenameForm({
-  current,
-  onSave,
-}: {
-  current: string;
-  onSave: (newName: string) => Promise<void>;
-}) {
-  const [name, setName] = useState(current);
-  const [saving, setSaving] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || name.trim() === current) return;
-    
-    setSaving(true);
-    try {
-      await onSave(name.trim());
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="flex gap-2">
-      <Input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        className="flex-1"
-        placeholder="League name"
-      />
-      <Button
-        type="submit"
-        size="sm"
-        disabled={saving || !name.trim() || name.trim() === current}
-      >
-        {saving ? "Saving..." : "Save"}
-      </Button>
-    </form>
-  );
-}

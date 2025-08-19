@@ -124,9 +124,46 @@ export default function NotificationSettings() {
       
       if (permission === 'granted') {
         setSuccess('Notification permission granted!');
-        // Initialize messaging to get FCM token
-        const { initMessaging } = await import('../../firebase/firebase');
-        await initMessaging(user?.uid || null);
+        // Detect iOS PWA (Safari Add-to-Home-Screen) and use Web Push subscription
+        const isStandalone = (window.navigator as any).standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+        const ua = window.navigator.userAgent || '';
+        const isIOS = /iP(hone|od|ad)/.test(ua);
+        const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
+        const isIosPwa = isIOS && isSafari && isStandalone;
+
+        if (isIosPwa && 'serviceWorker' in navigator && 'PushManager' in window) {
+          try {
+            const publicKey = import.meta.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY as string | undefined;
+            if (!publicKey) {
+              setError('Web Push public key is not configured');
+              return;
+            }
+            const registration = await navigator.serviceWorker.ready;
+            const urlBase64ToUint8Array = (base64String: string) => {
+              const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+              const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+              const rawData = atob(base64);
+              const outputArray = new Uint8Array(rawData.length);
+              for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+              return outputArray;
+            };
+            const rawSubscription = await registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: urlBase64ToUint8Array(publicKey),
+            });
+            const saveWebPushSubscription = httpsCallable(functions, 'saveWebPushSubscription');
+            // Persist only the portable JSON shape (endpoint + keys)
+            const json = (rawSubscription as unknown as { toJSON?: () => unknown })?.toJSON?.() || rawSubscription;
+            await saveWebPushSubscription({ subscription: json });
+          } catch (subErr) {
+            console.error('Web Push subscription failed:', subErr);
+            setError('Failed to subscribe to Web Push');
+          }
+        } else {
+          // Initialize FCM to get token for Android/desktop web
+          const { initMessaging } = await import('../../firebase/firebase');
+          await initMessaging(user?.uid || null);
+        }
       } else {
         setError('Notification permission denied');
       }

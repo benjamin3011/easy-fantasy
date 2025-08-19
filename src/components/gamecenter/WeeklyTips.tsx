@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useTipsStore } from '../../store/tipsStore';
 import { doc, getDoc, onSnapshot, query, where, getDocs, collection, limit } from 'firebase/firestore';
-import { db } from '../../firebase/firebase';
+import { db, functions } from '../../firebase/firebase';
+import { httpsCallable } from 'firebase/functions';
 import { useAuth } from '../../context/AuthContext';
 import TipsSummary from './TipsSummary';
 import { SkeletonPage } from '../ui/skeleton/SkeletonLoader';
@@ -71,9 +72,7 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
     pollLoading,
     pollError,
     userTips,
-    tipsLoading,
-    tipsError,
-    submitting,
+
     submitError,
     setPollData,
     setPollLoading,
@@ -191,13 +190,26 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
     clearSubmitMessages();
     
     try {
-      // Simulated auto-save - replace with actual API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setSubmitSuccess('Saved successfully');
-      setTimeout(() => setSubmitSuccess(''), 2000);
+      // Call the actual submitTips Cloud Function
+      const submitTipsFunction = httpsCallable(functions, 'submitTips');
+      const result = await submitTipsFunction({
+        leagueId,
+        week,
+        season,
+        tips
+      });
+      
+      const data = result.data as { success: boolean; message?: string };
+      if (data.success) {
+        setSubmitSuccess('Saved successfully');
+        setTimeout(() => setSubmitSuccess(''), 2000);
+      } else {
+        throw new Error(data.message || 'Failed to save tips');
+      }
     } catch (error) {
       console.error('Auto-save error:', error);
-      setSubmitError('Failed to save tips');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save tips';
+      setSubmitError(errorMessage);
       setTimeout(() => clearSubmitMessages(), 3000);
     } finally {
       setSubmitting(false);
@@ -329,8 +341,10 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
   // Display functions
   const getGameStatusDisplay = (game: TippableGame, score?: GameScore) => {
     if (!score) {
-      const gameDate = new Date(game.gameTime * 1000);
-      return gameDate.toLocaleDateString('en-US', { 
+      // game.gameTime is already in milliseconds (converted in backend)
+      const gameDate = new Date(game.gameTime);
+      return gameDate.toLocaleDateString('de-DE', { 
+        timeZone: 'Europe/Berlin',
         weekday: 'short', 
         month: 'short', 
         day: 'numeric',
@@ -351,7 +365,8 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
   // Check if game is locked (started)
   const isGameLocked = (game: TippableGame, score?: GameScore): boolean => {
     if (score && score.gameStatusCode > 0) return true; // Started
-    return Date.now() > (game.gameTime * 1000); // Past game time
+    // game.gameTime is already in milliseconds (converted in backend)
+    return Date.now() > game.gameTime; // Past game time
   };
 
   // Extract team name from full name (e.g., "Dallas Cowboys" -> "Cowboys")
@@ -364,7 +379,7 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
     return teamInfo?.abbreviation || fallback || '';
   };
 
-  const isLocked = tipsPoll?.isLocked || (tipsPoll?.lockTime && Date.now() > tipsPoll.lockTime.seconds * 1000);
+  // Individual game locking is handled per-game
 
   // Loading state (similar to LineupPage)
   if (isPageLoading) {
@@ -430,24 +445,7 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full">
       {/* Main Tips Content - Full width on mobile, 2/3 on desktop */}
       <div className="space-y-6 lg:col-span-2">
-        {/* Lock Status */}
-        {isLocked && (
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-yellow-600 dark:text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM15.1 8H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
-              </svg>
-              <div>
-                <p className="font-medium text-yellow-800 dark:text-yellow-200">
-                  Tips Locked
-                </p>
-                <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                  Games have started. No more changes allowed.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Individual games will show their own lock status */}
 
         {/* Error Message */}
         {submitError && (
@@ -463,7 +461,9 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
 
         {/* Games List - Single Column Layout */}
         <div className="space-y-6">
-          {tipsPoll.games.map((game) => {
+          {tipsPoll.games
+            .sort((a, b) => a.gameTime - b.gameTime) // Sort by game time ascending (earliest first)
+            .map((game) => {
             const score = gameScores[game.gameId];
             // Use team ID for lookup if available, otherwise use abbreviation
             const gameWithIds = game as TippableGame & { homeTeamId?: string; awayTeamId?: string };
@@ -475,6 +475,13 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
             const gameStatus = getGameStatusDisplay(game, score);
             const gameLocked = isGameLocked(game, score);
             const userPick = userTips[game.gameId];
+            const isFinal = score?.gameStatusCode === 2;
+            const winner: 'home' | 'away' | null = isFinal
+              ? (score!.homeScore > score!.awayScore ? 'home' : score!.awayScore > score!.homeScore ? 'away' : null)
+              : null;
+            const isTie = isFinal && winner === null;
+            const isCorrect = isFinal && winner !== null && userPick === winner;
+            const isWrong = isFinal && ((winner !== null && userPick && userPick !== winner) || (isTie && !!userPick));
 
             return (
               <div key={game.gameId} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
@@ -497,13 +504,14 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
                   <div className="flex items-center justify-between">
                     {/* Away Team */}
                     <button
-                      onClick={() => !gameLocked && !isLocked && handleTipChange(game.gameId, 'away')}
-                      disabled={gameLocked || isLocked}
-                      className={`flex flex-col sm:flex-row items-center sm:space-x-3 space-y-2 sm:space-y-0 p-3 rounded-lg border-2 transition-all duration-200 flex-1 mr-2 relative ${
-                        userPick === 'away'
-                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
-                          : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
-                      } ${(gameLocked || isLocked) ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer'}`}
+                      onClick={() => !gameLocked && handleTipChange(game.gameId, 'away')}
+                      disabled={gameLocked}
+                    className={`flex flex-col sm:flex-row items-center sm:space-x-3 space-y-2 sm:space-y-0 p-3 rounded-lg border-2 transition-all duration-200 flex-1 mr-2 relative ${
+                        isWrong && userPick === 'away' ? 'border-red-500 bg-red-50 dark:bg-red-900/20'
+                        : isCorrect && userPick === 'away' ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                        : userPick === 'away' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                        : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
+                      } ${gameLocked ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer'}`}
                     >
                       {/* Team Logo */}
                       <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0">
@@ -543,10 +551,18 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
 
                       {/* Selection Indicator */}
                       {userPick === 'away' && (
-                        <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0 absolute top-2 right-2 sm:relative sm:top-auto sm:right-auto">
-                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                          </svg>
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 absolute top-2 right-2 sm:relative sm:top-auto sm:right-auto ${
+                          isWrong ? 'bg-red-500' : isCorrect ? 'bg-green-500' : 'bg-blue-500'
+                        }`}>
+                          {isWrong ? (
+                            <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M18.3 5.71L12 12.01 5.71 5.71 4.29 7.12 10.59 13.41 4.29 19.71 5.71 21.12 12 14.83 18.29 21.12 19.71 19.71 13.41 13.41 19.71 7.12z"/>
+                            </svg>
+                          ) : (
+                            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                            </svg>
+                          )}
                         </div>
                       )}
                     </button>
@@ -558,13 +574,14 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
 
                     {/* Home Team */}
                     <button
-                      onClick={() => !gameLocked && !isLocked && handleTipChange(game.gameId, 'home')}
-                      disabled={gameLocked || isLocked}
-                      className={`flex flex-col sm:flex-row items-center sm:space-x-3 space-y-2 sm:space-y-0 p-3 rounded-lg border-2 transition-all duration-200 flex-1 ml-2 relative ${
-                        userPick === 'home'
-                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
-                          : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
-                      } ${(gameLocked || isLocked) ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer'}`}
+                      onClick={() => !gameLocked && handleTipChange(game.gameId, 'home')}
+                      disabled={gameLocked}
+                    className={`flex flex-col sm:flex-row items-center sm:space-x-3 space-y-2 sm:space-y-0 p-3 rounded-lg border-2 transition-all duration-200 flex-1 ml-2 relative ${
+                        isWrong && userPick === 'home' ? 'border-red-500 bg-red-50 dark:bg-red-900/20'
+                        : isCorrect && userPick === 'home' ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                        : userPick === 'home' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                        : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
+                      } ${gameLocked ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer'}`}
                     >
                       {/* Team Logo */}
                       <div className="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0">
@@ -604,10 +621,18 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
 
                       {/* Selection Indicator */}
                       {userPick === 'home' && (
-                        <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0 absolute top-2 right-2 sm:relative sm:top-auto sm:right-auto">
-                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                          </svg>
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 absolute top-2 right-2 sm:relative sm:top-auto sm:right-auto ${
+                          isWrong ? 'bg-red-500' : isCorrect ? 'bg-green-500' : 'bg-blue-500'
+                        }`}>
+                          {isWrong ? (
+                            <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M18.3 5.71L12 12.01 5.71 5.71 4.29 7.12 10.59 13.41 4.29 19.71 5.71 21.12 12 14.83 18.29 21.12 19.71 19.71 13.41 13.41 19.71 7.12z"/>
+                            </svg>
+                          ) : (
+                            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                            </svg>
+                          )}
                         </div>
                       )}
                     </button>
@@ -634,37 +659,7 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
           week={week}
         />
         
-        {/* Loading and Error States */}
-        {(tipsLoading || submitting || tipsError) && (
-          <div className="mt-4 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-            <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">Status</h3>
-            
-            {tipsLoading && (
-              <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 text-sm">
-                <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                <span>Loading your tips...</span>
-              </div>
-            )}
-            
-            {submitting && (
-              <div className="flex items-center justify-center py-12">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-500 mx-auto mb-4"></div>
-                  <p className="text-gray-600 dark:text-gray-400">Saving your tips...</p>
-                </div>
-              </div>
-            )}
-            
-            {tipsError && (
-              <div className="flex items-center gap-2 text-red-600 dark:text-red-400 text-sm">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-                </svg>
-                <span>{tipsError}</span>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Status is now handled by TipsSummary in the sidebar */}
       </div>
     </div>
   );

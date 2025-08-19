@@ -84,7 +84,6 @@ export async function fetchUserAnalytics(
   season: number = parseInt(APP_CONFIG.CURRENT_NFL_SEASON.toString())
 ): Promise<UserAnalytics | null> {
   try {
-    console.log(`📊 Fetching analytics for user ${userId} in league ${leagueId}`);
     
     // Fetch user's weekly lineups for this league/season
     const weeklyLineups = await fetchUserWeeklyLineups(userId, leagueId, season);
@@ -160,8 +159,8 @@ function calculateSeasonStats(weeklyLineups: DocumentData[]): SeasonStats {
   }
 
   const weeklyPoints = weeklyLineups
-    .filter(lineup => lineup.totalPoints && lineup.totalPoints > 0)
-    .map(lineup => lineup.totalPoints);
+    .filter(lineup => typeof lineup.totalActualPoints === 'number' && lineup.totalActualPoints >= 0)
+    .map(lineup => lineup.totalActualPoints as number);
 
   const totalPoints = weeklyPoints.reduce((sum, points) => sum + points, 0);
   const averagePoints = totalPoints / weeklyPoints.length;
@@ -188,14 +187,14 @@ function calculateSeasonStats(weeklyLineups: DocumentData[]): SeasonStats {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function calculateWeeklyPerformance(weeklyLineups: DocumentData[], _leagueStandings: DocumentData[]): WeeklyPerformance[] {
   return weeklyLineups
-    .filter(lineup => lineup.totalPoints && lineup.totalPoints > 0)
+    .filter(lineup => typeof lineup.totalActualPoints === 'number' && lineup.totalActualPoints >= 0)
     .map(lineup => ({
       week: lineup.week,
-      points: lineup.totalPoints,
+      points: lineup.totalActualPoints ?? 0,
       rank: 0, // Would need league context
       leagueSize: 0, // Would need league context
       lineupComplete: lineup.isComplete || false,
-      captainPoints: lineup.captainMultipliedPoints || 0,
+      captainPoints: (typeof lineup.captainMultipliedPoints === 'number' ? lineup.captainMultipliedPoints : 0),
       captainPosition: lineup.captainPosition || 'Unknown'
     }));
 }
@@ -310,7 +309,7 @@ async function calculateUsageAnalytics(userId: string, leagueId: string, season:
 
 function calculateCaptainAnalytics(weeklyLineups: DocumentData[]): CaptainAnalytics {
   const captainWeeks = weeklyLineups.filter(lineup => 
-    lineup.captainMultipliedPoints && lineup.captainBasePoints
+    typeof lineup.captainMultipliedPoints === 'number' && typeof lineup.captainBasePoints === 'number'
   );
 
   if (captainWeeks.length === 0) {
@@ -328,9 +327,9 @@ function calculateCaptainAnalytics(weeklyLineups: DocumentData[]): CaptainAnalyt
   }
 
   const totalCaptainPoints = captainWeeks.reduce((sum, lineup) => 
-    sum + lineup.captainMultipliedPoints, 0);
+    sum + (lineup.captainMultipliedPoints as number), 0);
   const totalBasePoints = captainWeeks.reduce((sum, lineup) => 
-    sum + lineup.captainBasePoints, 0);
+    sum + (lineup.captainBasePoints as number), 0);
   const totalBonusPoints = totalCaptainPoints - totalBasePoints;
   
   const roi = totalBasePoints > 0 ? (totalBonusPoints / totalBasePoints) * 100 : 0;
@@ -342,17 +341,17 @@ function calculateCaptainAnalytics(weeklyLineups: DocumentData[]): CaptainAnalyt
     if (!positionStats[pos]) {
       positionStats[pos] = { total: 0, bonus: 0, count: 0 };
     }
-    positionStats[pos].total += lineup.captainMultipliedPoints;
-    positionStats[pos].bonus += (lineup.captainMultipliedPoints - lineup.captainBasePoints);
+    positionStats[pos].total += (lineup.captainMultipliedPoints as number);
+    positionStats[pos].bonus += ((lineup.captainMultipliedPoints as number) - (lineup.captainBasePoints as number));
     positionStats[pos].count += 1;
   });
 
   // Calculate recent form (last 4 weeks) - moved up to fix declaration order
   const recentWeeks = captainWeeks.slice(-4);
   const recentBonus = recentWeeks.reduce((sum, lineup) => 
-    sum + (lineup.captainMultipliedPoints - lineup.captainBasePoints), 0);
+    sum + ((lineup.captainMultipliedPoints as number) - (lineup.captainBasePoints as number)), 0);
   const recentBase = recentWeeks.reduce((sum, lineup) => 
-    sum + lineup.captainBasePoints, 0);
+    sum + (lineup.captainBasePoints as number), 0);
   const recentForm = recentBase > 0 ? (recentBonus / recentBase) * 100 : 0;
 
   // Create position breakdown with detailed stats
@@ -387,7 +386,7 @@ function calculateCaptainAnalytics(weeklyLineups: DocumentData[]): CaptainAnalyt
 
   // Calculate streaks (simplified: consecutive weeks with positive/negative bonus)
   const bonusResults = captainWeeks.map(lineup => 
-    (lineup.captainMultipliedPoints - lineup.captainBasePoints) > 0
+    ((lineup.captainMultipliedPoints as number) - (lineup.captainBasePoints as number)) > 0
   );
   
   let currentStreak = 0;
@@ -492,10 +491,10 @@ export async function getQuickPerformanceData(userId: string, leagueId: string) 
     // Get last 4 weeks for trend
     const recentLineups = await getRecentLineups(userId, leagueId, season, 4);
     
-    // Calculate quick metrics
-    const currentWeekPoints = currentWeekLineup?.totalPoints || 0;
+    // Calculate quick metrics (use totalActualPoints written by score calc)
+    const currentWeekPoints = currentWeekLineup?.totalActualPoints || 0;
     const recentAverage = recentLineups.length > 0 
-      ? recentLineups.reduce((sum, lineup) => sum + (lineup.totalPoints || 0), 0) / recentLineups.length
+      ? recentLineups.reduce((sum, lineup) => sum + (lineup.totalActualPoints || 0), 0) / recentLineups.length
       : 0;
     
     const trend = recentLineups.length >= 2 ? calculateQuickTrend(recentLineups) : 'stable';
@@ -505,7 +504,7 @@ export async function getQuickPerformanceData(userId: string, leagueId: string) 
       recentAverage: Math.round(recentAverage * 10) / 10,
       trend,
       weeksPlayed: recentLineups.length,
-      hasCurrentWeekData: !!currentWeekLineup
+      hasCurrentWeekData: currentWeekLineup?.totalActualPoints != null
     };
     
   } catch (error) {
@@ -554,8 +553,8 @@ function calculateQuickTrend(lineups: DocumentData[]): 'up' | 'down' | 'stable' 
   const firstHalf = lineups.slice(0, Math.floor(lineups.length / 2));
   const secondHalf = lineups.slice(Math.floor(lineups.length / 2));
   
-  const firstAvg = firstHalf.reduce((sum, lineup) => sum + (lineup.totalPoints || 0), 0) / firstHalf.length;
-  const secondAvg = secondHalf.reduce((sum, lineup) => sum + (lineup.totalPoints || 0), 0) / secondHalf.length;
+  const firstAvg = firstHalf.reduce((sum, lineup) => sum + (lineup.totalActualPoints || 0), 0) / firstHalf.length;
+  const secondAvg = secondHalf.reduce((sum, lineup) => sum + (lineup.totalActualPoints || 0), 0) / secondHalf.length;
   
   if (secondAvg > firstAvg * 1.05) return 'up';
   if (secondAvg < firstAvg * 0.95) return 'down';

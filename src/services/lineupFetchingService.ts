@@ -720,6 +720,72 @@ export async function fetchDetailedGameStatsForEntity(
   }
 }
 
+// PERFORMANCE: Batch fetch game stats for multiple entities
+export async function fetchDetailedGameStatsBatch(
+  requests: Array<{ entityId: string; entityType: 'player' | 'team'; gameId: string }>
+): Promise<Map<string, DetailedGameStatsType>> {
+  const results = new Map<string, DetailedGameStatsType>();
+  
+  if (requests.length === 0) return results;
+  
+  try {
+    // Group requests by entity type for efficient batching
+    const playerRequests = requests.filter(r => r.entityType === 'player');
+    const teamRequests = requests.filter(r => r.entityType === 'team');
+    
+    // Batch fetch all documents in parallel
+    const allPromises: Promise<void>[] = [];
+    
+    // Process player stats
+    if (playerRequests.length > 0) {
+      const playerPromise = Promise.all(
+        playerRequests.map(async (req) => {
+          try {
+            const docRef = doc(db, 'players', req.entityId, 'gamestats', req.gameId);
+            const docSnap = await getDoc(docRef);
+            
+            if (docSnap.exists()) {
+              const key = `${req.entityId}_${req.entityType}_${req.gameId}`;
+              results.set(key, docSnap.data() as DetailedGameStatsType);
+            }
+          } catch (error) {
+            console.warn(`Failed to fetch player stats for ${req.entityId}:`, error);
+          }
+        })
+      ).then(() => {}); // Convert Promise<void[]> to Promise<void>
+      allPromises.push(playerPromise);
+    }
+    
+    // Process team stats
+    if (teamRequests.length > 0) {
+      const teamPromise = Promise.all(
+        teamRequests.map(async (req) => {
+          try {
+            const docRef = doc(db, 'teams', req.entityId, 'gamestats', req.gameId);
+            const docSnap = await getDoc(docRef);
+            
+            if (docSnap.exists()) {
+              const key = `${req.entityId}_${req.entityType}_${req.gameId}`;
+              results.set(key, docSnap.data() as DetailedGameStatsType);
+            }
+          } catch (error) {
+            console.warn(`Failed to fetch team stats for ${req.entityId}:`, error);
+          }
+        })
+      ).then(() => {}); // Convert Promise<void[]> to Promise<void>
+      allPromises.push(teamPromise);
+    }
+    
+    // Execute all requests in parallel
+    await Promise.all(allPromises);
+    
+  } catch (error) {
+    console.error('Error in batch game stats fetch:', error);
+  }
+  
+  return results;
+}
+
 // Fetch game scores for live game display
 export interface GameScore {
   gameId: string;

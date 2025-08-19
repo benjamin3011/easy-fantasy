@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { logger } from 'firebase-functions/v2';
-import { onCall } from 'firebase-functions/v2/https';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as admin from 'firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -69,6 +69,8 @@ interface WeeklyTipsPoll {
 interface UserTip {
   gameId: string;
   pick: 'home' | 'away';
+  pickedTeamId?: string; // new: explicit team id for resilience
+  pickedTeamAbbreviation?: string; // new: explicit team abbreviation for display
   submittedAt: Timestamp;
 }
 
@@ -178,16 +180,25 @@ function calculateConsensusWinProbabilities(sportsBooks: BettingOdds[]): { home:
 // --- Core Functions ---
 
 /**
- * Fetch betting odds for a specific game
+ * Fetch betting odds for all games on a specific date
  */
-async function fetchGameBettingOdds(gameId: string, gameDate: string): Promise<BettingOddsResponse | null> {
+async function fetchDayBettingOdds(gameDate: string): Promise<Record<string, BettingOddsResponse> | null> {
   try {
-    const response = await axios.get<BettingOddsResponse>(
+    logger.info(`Fetching betting odds for all games on ${gameDate}`);
+    
+    const response = await axios.get<{ statusCode: number; body: Array<{
+      gameID: string;
+      gameDate: string;
+      teamIDHome: string;
+      teamIDAway: string;
+      homeTeam: string;
+      awayTeam: string;
+      sportsBooks: BettingOdds[];
+    }> }>(
       `https://${hosts.TANK01_NFL_API}/getNFLBettingOdds`,
       {
         params: {
           gameDate: gameDate.replace(/-/g, ''), // Convert YYYY-MM-DD to YYYYMMDD
-          gameID: gameId,
           itemFormat: 'list',
           impliedTotals: 'true'
         },
@@ -195,14 +206,46 @@ async function fetchGameBettingOdds(gameId: string, gameDate: string): Promise<B
       }
     );
 
+    // Debug: Log basic response info
+    logger.info(`API Response for ${gameDate}: statusCode=${response.data.statusCode}, games=${Array.isArray(response.data.body) ? response.data.body.length : 0}`);
+
     if (response.data.statusCode !== 200) {
-      logger.warn(`Betting odds API returned non-200 status for game ${gameId}: ${response.data.statusCode}`);
+      logger.warn(`Betting odds API returned non-200 status for date ${gameDate}: ${response.data.statusCode}`);
       return null;
     }
 
-    return response.data;
+    // Convert array response to gameID-keyed object for easy lookup
+    const oddsMap: Record<string, BettingOddsResponse> = {};
+    
+    if (Array.isArray(response.data.body)) {
+      for (const gameOdds of response.data.body) {
+        // The gameID is directly on the object, not nested in a "body" property
+        if (gameOdds.gameID) {
+          // Wrap the game data in the expected BettingOddsResponse format
+          const wrappedOdds: BettingOddsResponse = {
+            statusCode: 200,
+            body: gameOdds
+          };
+          oddsMap[gameOdds.gameID] = wrappedOdds;
+        }
+      }
+      logger.info(`Fetched odds for ${Object.keys(oddsMap).length} games on ${gameDate}`);
+    } else {
+      // Single game response (fallback) - when API returns single object instead of array
+      const singleGameOdds = response.data.body as unknown as BettingOddsResponse['body'];
+      if (singleGameOdds?.gameID) {
+        const wrappedOdds: BettingOddsResponse = {
+          statusCode: 200,
+          body: singleGameOdds as BettingOddsResponse['body']
+        };
+        oddsMap[singleGameOdds.gameID] = wrappedOdds;
+        logger.info(`Fetched odds for single game: ${singleGameOdds.gameID}`);
+      }
+    }
+
+    return oddsMap;
   } catch (error) {
-    logger.error(`Error fetching betting odds for game ${gameId}:`, error);
+    logger.error(`Error fetching betting odds for date ${gameDate}:`, error);
     return null;
   }
 }
@@ -228,15 +271,46 @@ async function createWeeklyTipsPoll(leagueId: string, week: number, season: numb
       return { success: false, message: `No games found for week ${week}` };
     }
 
-    // Fetch betting odds for each game and create tippable games
+    // Group games by date for batch odds fetching
+    const gamesByDate: Record<string, typeof games> = {};
+    for (const game of games) {
+      const gameDate = game.gameDate || new Date().toISOString().split('T')[0];
+      if (!gamesByDate[gameDate]) {
+        gamesByDate[gameDate] = [];
+      }
+      gamesByDate[gameDate].push(game);
+    }
+
+    // Fetch betting odds for all dates (batch approach)
+    const allOddsMap: Record<string, BettingOddsResponse> = {};
+    for (const gameDate of Object.keys(gamesByDate)) {
+      logger.info(`Fetching odds for ${gamesByDate[gameDate].length} games on ${gameDate}`);
+      const dayOdds = await fetchDayBettingOdds(gameDate);
+      if (dayOdds) {
+        Object.assign(allOddsMap, dayOdds);
+      }
+    }
+
+    logger.info(`Total odds fetched for ${Object.keys(allOddsMap).length} games across ${Object.keys(gamesByDate).length} dates`);
+
+    // Create tippable games using fetched odds
     const tippableGames: TippableGame[] = [];
     let firstGameTime = Date.now() + (7 * 24 * 60 * 60 * 1000); // Default to 1 week from now
 
     for (const game of games) {
       const gameDate = game.gameDate || new Date().toISOString().split('T')[0];
-      const bettingData = await fetchGameBettingOdds(game.gameID, gameDate);
+      const bettingData = allOddsMap[game.gameID];
       
-      const gameTime = game.gameTime_epoch ? parseInt(game.gameTime_epoch) * 1000 : Date.now();
+      // Parse game time - if missing, use a future date (1 week from now) to prevent games from appearing as "live"
+      let gameTime;
+      if (game.gameTime_epoch) {
+        const timeNum = parseInt(game.gameTime_epoch);
+        gameTime = timeNum * 1000;
+        logger.info(`DEBUG: Game ${game.gameID} - epoch: ${game.gameTime_epoch} -> ${timeNum} -> ${new Date(gameTime).toISOString()}`);
+      } else {
+        gameTime = Date.now() + (7 * 24 * 60 * 60 * 1000); // 1 week from now
+        logger.warn(`DEBUG: Game ${game.gameID} has no gameTime_epoch, using far future: ${new Date(gameTime).toISOString()}`);
+      }
       if (gameTime < firstGameTime) {
         firstGameTime = gameTime;
       }
@@ -245,6 +319,8 @@ async function createWeeklyTipsPoll(leagueId: string, week: number, season: numb
         const winProbs = calculateConsensusWinProbabilities(bettingData.body.sportsBooks);
         const avgSpread = calculateAverageSpread(bettingData.body.sportsBooks);
         const avgTotal = calculateAverageTotal(bettingData.body.sportsBooks);
+
+        logger.info(`Using betting odds for game ${game.gameID}: spread=${avgSpread.toFixed(1)}, total=${avgTotal.toFixed(1)}, homeWin=${winProbs.home}%`);
 
         tippableGames.push({
           gameId: game.gameID,
@@ -280,14 +356,14 @@ async function createWeeklyTipsPoll(leagueId: string, week: number, season: numb
 
     // Create the tips poll document
     const now = Timestamp.now();
-    const lockTime = Timestamp.fromMillis(firstGameTime - (30 * 60 * 1000)); // Lock 30 minutes before first game
+    const lockTime = Timestamp.fromMillis(firstGameTime - (30 * 60 * 1000)); // Keep for reference, but don't globally lock
 
     const tipsPoll: WeeklyTipsPoll = {
       leagueId,
       season,
       week,
       games: tippableGames,
-      isLocked: Date.now() > firstGameTime - (30 * 60 * 1000),
+      isLocked: false, // Use per-game locking instead of global lock
       lockTime,
       createdAt: now,
       lastUpdated: now
@@ -323,11 +399,21 @@ async function submitUserTips(userId: string, leagueId: string, week: number, se
 
     const tipsPoll = tipsPollDoc.data() as WeeklyTipsPoll;
 
-    if (tipsPoll.isLocked || Date.now() > tipsPoll.lockTime.toMillis()) {
-      return { success: false, message: 'Tips poll is locked - first game has started' };
+    // No global lock check - individual games will be validated below
+
+    // Get existing user tips to check what has actually changed
+    const existingTipsDoc = await db.collection('weeklyTips').doc(docId)
+      .collection('userTips').doc(userId).get();
+    
+    const existingTips: Record<string, string> = {};
+    if (existingTipsDoc.exists) {
+      const existingData = existingTipsDoc.data() as UserTipsSubmission;
+      for (const tip of existingData.tips || []) {
+        existingTips[tip.gameId] = tip.pick;
+      }
     }
 
-    // Validate tips
+    // Validate tips - only check games where the tip has actually changed
     const validGameIds = new Set(tipsPoll.games.map(game => game.gameId));
     const userTips: UserTip[] = [];
 
@@ -338,9 +424,34 @@ async function submitUserTips(userId: string, leagueId: string, week: number, se
       if (pick !== 'home' && pick !== 'away') {
         return { success: false, message: `Invalid pick for game ${gameId}: ${pick}` };
       }
+      
+      // Only validate timing for CHANGED tips
+      const existingPick = existingTips[gameId];
+      const tipHasChanged = existingPick !== pick;
+      
+      if (tipHasChanged) {
+        // Check if this specific game has started (only for changed tips)
+        const gameInfo = tipsPoll.games.find(g => g.gameId === gameId);
+        if (gameInfo && Date.now() > gameInfo.gameTime) {
+          logger.info(`Tip change blocked for ${gameInfo.awayTeam} @ ${gameInfo.homeTeam} - game started at ${new Date(gameInfo.gameTime)}`);
+          return { success: false, message: `Cannot change tip for ${gameInfo.awayTeam} @ ${gameInfo.homeTeam} - game has already started` };
+        } else if (gameInfo) {
+          logger.info(`Allowing tip change for ${gameInfo.awayTeam} @ ${gameInfo.homeTeam} - game starts at ${new Date(gameInfo.gameTime)}`);
+        }
+      } else {
+        logger.info(`Tip unchanged for game ${gameId}: ${pick}`);
+      }
+      
+      // Enrich with picked team id/abbreviation for resilience
+      const gameInfo = tipsPoll.games.find(g => g.gameId === gameId);
+      const pickedTeamId = pick === 'home' ? (gameInfo?.homeTeamId || '') : (gameInfo?.awayTeamId || '');
+      const pickedTeamAbbreviation = pick === 'home' ? (gameInfo?.homeTeam || '') : (gameInfo?.awayTeam || '');
+
       userTips.push({
         gameId,
         pick,
+        pickedTeamId,
+        pickedTeamAbbreviation,
         submittedAt: Timestamp.now()
       });
     }
@@ -474,24 +585,53 @@ async function calculateWeeklyTipsResults(leagueId: string, week: number, season
        const existingData = await prophetRef.get();
        const currentData = existingData.exists ? existingData.data() : undefined;
 
+       // Check if this week was already calculated
+       const existingWeekResult = currentData?.weeklyResults?.[week];
+       const weekAlreadyCalculated = existingWeekResult && 
+         existingWeekResult.points === weeklyPoints && 
+         existingWeekResult.correct === correctPicks && 
+         existingWeekResult.total === totalPicks;
+
+       if (weekAlreadyCalculated) {
+         logger.info(`Week ${week} already calculated for user ${userTips.userId}, skipping...`);
+         continue;
+       }
+
+       // Update weekly results
+       const updatedWeeklyResults = {
+         ...(currentData?.weeklyResults || {}),
+         [week]: {
+           points: weeklyPoints,
+           correct: correctPicks,
+           total: totalPicks,
+           accuracy
+         }
+       };
+
+       // Recalculate totals from all weekly results (instead of adding)
+       let newTotalPoints = 0;
+       let newTotalCorrect = 0;
+       let newTotalPicks = 0;
+
+       for (const weekResult of Object.values(updatedWeeklyResults)) {
+         const result = weekResult as { points: number; correct: number; total: number; accuracy: number };
+         newTotalPoints += result.points || 0;
+         newTotalCorrect += result.correct || 0;
+         newTotalPicks += result.total || 0;
+       }
+
        batch.set(prophetRef, {
          userId: userTips.userId,
          leagueId,
          season,
-         totalPoints: (currentData?.totalPoints || 0) + weeklyPoints,
-         totalCorrect: (currentData?.totalCorrect || 0) + correctPicks,
-         totalPicks: (currentData?.totalPicks || 0) + totalPicks,
-         weeklyResults: {
-           ...(currentData?.weeklyResults || {}),
-           [week]: {
-             points: weeklyPoints,
-             correct: correctPicks,
-             total: totalPicks,
-             accuracy
-           }
-         },
+         totalPoints: newTotalPoints,
+         totalCorrect: newTotalCorrect,
+         totalPicks: newTotalPicks,
+         weeklyResults: updatedWeeklyResults,
          lastUpdated: Timestamp.now()
        }, { merge: true });
+
+       logger.info(`Updated user ${userTips.userId} week ${week}: ${weeklyPoints} points (Total: ${newTotalPoints})`);
     }
 
     await batch.commit();
@@ -554,6 +694,83 @@ export const submitTips = onCall(
 );
 
 /**
+ * Repair prophet leaderboard totals by recalculating from weekly results
+ */
+export const repairProphetTotals = onCall(
+  { ...functionOptions },
+  async (request) => {
+    const { leagueId, season } = request.data;
+    
+    if (!leagueId || !season) {
+      throw new HttpsError('invalid-argument', 'Missing leagueId or season');
+    }
+
+    try {
+      logger.info(`Repairing prophet totals for league ${leagueId}, season ${season}`);
+      
+      const leaderboardRef = db.collection('prophetLeaderboards')
+        .doc(`${leagueId}_${season}`)
+        .collection('members');
+      
+      const membersSnapshot = await leaderboardRef.get();
+      const batch = db.batch();
+      let repairedCount = 0;
+
+      for (const memberDoc of membersSnapshot.docs) {
+        const memberData = memberDoc.data();
+        const weeklyResults = memberData.weeklyResults || {};
+        
+        // Recalculate totals from weekly results
+        let newTotalPoints = 0;
+        let newTotalCorrect = 0;
+        let newTotalPicks = 0;
+
+        for (const weekResult of Object.values(weeklyResults)) {
+          const result = weekResult as { points: number; correct: number; total: number; accuracy: number };
+          newTotalPoints += result.points || 0;
+          newTotalCorrect += result.correct || 0;
+          newTotalPicks += result.total || 0;
+        }
+
+        // Check if repair is needed
+        const needsRepair = memberData.totalPoints !== newTotalPoints ||
+                           memberData.totalCorrect !== newTotalCorrect ||
+                           memberData.totalPicks !== newTotalPicks;
+
+        if (needsRepair) {
+          logger.info(`Repairing user ${memberData.userId}: ${memberData.totalPoints} → ${newTotalPoints} points`);
+          
+          batch.update(memberDoc.ref, {
+            totalPoints: newTotalPoints,
+            totalCorrect: newTotalCorrect,
+            totalPicks: newTotalPicks,
+            lastUpdated: Timestamp.now()
+          });
+          
+          repairedCount++;
+        }
+      }
+
+      if (repairedCount > 0) {
+        await batch.commit();
+        logger.info(`Repaired ${repairedCount} prophet leaderboard entries`);
+      } else {
+        logger.info('No repairs needed - all totals are correct');
+      }
+
+      return {
+        success: true,
+        message: `Repaired ${repairedCount} entries`,
+        repairedCount
+      };
+    } catch (error) {
+      logger.error('Error repairing prophet totals:', error);
+      throw new HttpsError('internal', 'Failed to repair prophet totals');
+    }
+  }
+);
+
+/**
  * Get prophet leaderboard for a league
  */
 export const getProphetLeaderboard = onCall(
@@ -589,29 +806,57 @@ export const getProphetLeaderboard = onCall(
         .get();
 
       const leaderboard: ProphetLeaderboardEntry[] = [];
+      const currentWeek = calculateCurrentNFLWeek();
       
-             leaderboardSnapshot.docs.forEach((doc) => {
-         const data = doc.data();
-         const member = members.find((m: { uid: string; teamName?: string }) => m.uid === doc.id);
+      // Create a map of existing prophet data
+      const prophetDataMap = new Map();
+      leaderboardSnapshot.docs.forEach((doc) => {
+        prophetDataMap.set(doc.id, doc.data());
+      });
+      
+      // Process ALL league members, not just those with prophet data
+      members.forEach((member: { uid: string; teamName?: string }) => {
+        const prophetData = prophetDataMap.get(member.uid);
         
-        if (member) {
-          const currentWeek = calculateCurrentNFLWeek();
-          const weeklyData = data.weeklyResults?.[currentWeek] || { points: 0, correct: 0, total: 0 };
+        if (prophetData) {
+          // User has prophet data
+          const weeklyData = prophetData.weeklyResults?.[currentWeek] || { points: 0, correct: 0, total: 0 };
           
-          leaderboard.push({
-            userId: doc.id,
+          const entry = {
+            userId: member.uid,
             userName: member.teamName || 'Unknown',
             teamName: member.teamName || 'Unknown',
             weeklyPoints: weeklyData.points,
-            totalPoints: data.totalPoints || 0,
-            accuracy: data.totalPicks > 0 ? Math.round((data.totalCorrect / data.totalPicks) * 100) : 0,
+            totalPoints: prophetData.totalPoints || 0,
+            accuracy: prophetData.totalPicks > 0 ? Math.round((prophetData.totalCorrect / prophetData.totalPicks) * 100) : 0,
             currentStreak: 0, // Could implement streak tracking
             bestStreak: 0,
-            totalCorrect: data.totalCorrect || 0,
-            totalPicks: data.totalPicks || 0
-          });
+            totalCorrect: prophetData.totalCorrect || 0,
+            totalPicks: prophetData.totalPicks || 0
+          };
+          
+          leaderboard.push(entry);
+        } else {
+          // User has no prophet data - show with zeros
+          const entry = {
+            userId: member.uid,
+            userName: member.teamName || 'Unknown',
+            teamName: member.teamName || 'Unknown',
+            weeklyPoints: 0,
+            totalPoints: 0,
+            accuracy: 0,
+            currentStreak: 0,
+            bestStreak: 0,
+            totalCorrect: 0,
+            totalPicks: 0
+          };
+          
+          leaderboard.push(entry);
         }
       });
+      
+      // Sort by total points desc, then by accuracy desc
+      leaderboard.sort((a, b) => (b.totalPoints - a.totalPoints) || (b.accuracy - a.accuracy));
 
       return { success: true, leaderboard };
 
@@ -640,6 +885,121 @@ export const calculateTipsResults = onCall(
 
     const currentSeason = season || parseInt(config.CURRENT_NFL_SEASON);
     return await calculateWeeklyTipsResults(leagueId, week, currentSeason);
+  }
+);
+
+/**
+ * Manual function to update betting odds for existing tips polls
+ */
+export const updateTipsOdds = onCall(
+  { 
+    ...functionOptions,
+    secrets: [secrets.TANK01_KEY]
+  },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new Error('Authentication required');
+    }
+
+    const { week, season } = request.data;
+    const currentWeek = week || calculateCurrentNFLWeek();
+    const currentSeason = season || parseInt(config.CURRENT_NFL_SEASON);
+
+    try {
+      logger.info(`Manually updating tips odds for week ${currentWeek}, season ${currentSeason}`);
+
+      // Get all tips polls for the specified week
+      const tipsSnapshot = await db.collection('weeklyTips')
+        .where('season', '==', currentSeason)
+        .where('week', '==', currentWeek)
+        .get();
+
+      if (tipsSnapshot.empty) {
+        return { success: false, message: `No tips polls found for week ${currentWeek}` };
+      }
+
+      logger.info(`Found ${tipsSnapshot.size} tips polls to update`);
+
+      // Group all games by date for batch odds fetching
+      const gamesByDate: Record<string, Array<{ gameId: string; gameDate: string }>> = {};
+      
+      for (const doc of tipsSnapshot.docs) {
+        const tipsPoll = doc.data();
+        logger.info(`Processing tips poll with ${tipsPoll.games?.length || 0} games`);
+        
+        for (const game of tipsPoll.games || []) {
+          const gameDate = game.gameDate;
+          
+          if (!gameDate) {
+            logger.warn(`Game ${game.gameId} has no gameDate field`);
+            continue;
+          }
+          
+          if (!gamesByDate[gameDate]) {
+            gamesByDate[gameDate] = [];
+          }
+          gamesByDate[gameDate].push({ gameId: game.gameId, gameDate });
+        }
+      }
+
+      // Fetch betting odds for all dates (batch approach)
+      const allOddsMap: Record<string, BettingOddsResponse> = {};
+      for (const gameDate of Object.keys(gamesByDate)) {
+        logger.info(`Fetching odds for ${gamesByDate[gameDate].length} games on ${gameDate}`);
+        const dayOdds = await fetchDayBettingOdds(gameDate);
+        if (dayOdds) {
+          Object.assign(allOddsMap, dayOdds);
+        }
+      }
+
+      logger.info(`Total odds fetched for ${Object.keys(allOddsMap).length} games`);
+
+      // Update all tips polls with new odds
+      const batch = db.batch();
+      let updatedCount = 0;
+
+      for (const doc of tipsSnapshot.docs) {
+        const tipsPoll = doc.data();
+        const updatedGames = tipsPoll.games.map((game: TippableGame) => {
+          const bettingData = allOddsMap[game.gameId];
+          
+          if (bettingData && bettingData.body.sportsBooks.length > 0) {
+            const winProbs = calculateConsensusWinProbabilities(bettingData.body.sportsBooks);
+            const avgSpread = calculateAverageSpread(bettingData.body.sportsBooks);
+            const avgTotal = calculateAverageTotal(bettingData.body.sportsBooks);
+
+            logger.info(`Updating odds for game ${game.gameId}: spread=${avgSpread.toFixed(1)}, total=${avgTotal.toFixed(1)}, homeWin=${winProbs.home}%`);
+
+            return {
+              ...game,
+              homeWinProbability: winProbs.home,
+              awayWinProbability: winProbs.away,
+              spread: avgSpread,
+              total: avgTotal
+            };
+          }
+          
+          return game; // Keep original if no odds found
+        });
+
+        batch.update(doc.ref, {
+          games: updatedGames,
+          lastUpdated: Timestamp.now()
+        });
+        updatedCount++;
+      }
+
+      await batch.commit();
+
+      return {
+        success: true,
+        message: `Successfully updated betting odds for ${updatedCount} tips polls with ${Object.keys(allOddsMap).length} games`
+      };
+
+    } catch (error) {
+      logger.error('Error updating tips odds:', error);
+      throw new Error(`Failed to update odds: ${error}`);
+    }
   }
 );
 
@@ -687,7 +1047,7 @@ export const scheduledCreateTips = onSchedule(
 export const scheduledCalculateTipsResults = onSchedule(
   {
     ...functionOptions,
-    schedule: '0 8 * * 3', // Every Wednesday at 8 AM (after all games complete)
+    schedule: '0 */2 * * *', // Every 2 hours for faster updates
     timeZone: 'America/New_York'
   },
   async () => {
@@ -695,29 +1055,43 @@ export const scheduledCalculateTipsResults = onSchedule(
       logger.info('Running scheduled tips results calculation...');
       
       const currentWeek = calculateCurrentNFLWeek();
-      const previousWeek = currentWeek - 1;
       const currentSeason = parseInt(config.CURRENT_NFL_SEASON);
-
-      if (previousWeek < 1) {
-        logger.info('No previous week to calculate results for');
-        return;
-      }
 
       // Get all active leagues
       const leaguesSnapshot = await db.collection('leagues').get();
       
+      let totalCalculations = 0;
+      
       for (const leagueDoc of leaguesSnapshot.docs) {
         const leagueId = leagueDoc.id;
-        logger.info(`Calculating tips results for league ${leagueId}, week ${previousWeek}`);
         
+        // Try current week first (for ongoing games that just finished)
         try {
-          await calculateWeeklyTipsResults(leagueId, previousWeek, currentSeason);
-        } catch (error) {
-          logger.error(`Failed to calculate tips results for league ${leagueId}:`, error);
+          const currentWeekResult = await calculateWeeklyTipsResults(leagueId, currentWeek, currentSeason);
+          if (currentWeekResult.success) {
+            logger.info(`Calculated tips results for league ${leagueId}, week ${currentWeek}: ${currentWeekResult.message}`);
+            totalCalculations++;
+          }
+        } catch {
+          logger.info(`No completed games for league ${leagueId}, week ${currentWeek}`);
+        }
+        
+        // Also try previous week (in case we missed it)
+        const previousWeek = currentWeek - 1;
+        if (previousWeek >= 1) {
+          try {
+            const previousWeekResult = await calculateWeeklyTipsResults(leagueId, previousWeek, currentSeason);
+            if (previousWeekResult.success) {
+              logger.info(`Calculated tips results for league ${leagueId}, week ${previousWeek}: ${previousWeekResult.message}`);
+              totalCalculations++;
+            }
+          } catch {
+            logger.info(`No additional results needed for league ${leagueId}, week ${previousWeek}`);
+          }
         }
       }
 
-      logger.info('Scheduled tips results calculation completed');
+      logger.info(`Scheduled tips results calculation completed. Processed ${totalCalculations} calculations.`);
     } catch (error) {
       logger.error('Error in scheduled tips results calculation:', error);
     }
@@ -731,7 +1105,8 @@ export const scheduledUpdateTipsOdds = onSchedule(
   {
     ...functionOptions,
     schedule: '0 6 * * *', // Every day at 6 AM
-    timeZone: 'America/New_York'
+    timeZone: 'America/New_York',
+    secrets: [secrets.TANK01_KEY]  // Add missing secrets configuration
   },
   async () => {
     try {
@@ -740,19 +1115,18 @@ export const scheduledUpdateTipsOdds = onSchedule(
       const currentWeek = calculateCurrentNFLWeek();
       const currentSeason = parseInt(config.CURRENT_NFL_SEASON);
       
-      // Get all active tips polls (not locked and for current week)
+      // Get all tips polls for current week
       const tipsSnapshot = await db.collection('weeklyTips')
         .where('season', '==', currentSeason)
         .where('week', '==', currentWeek)
-        .where('isLocked', '==', false)
         .get();
         
       if (tipsSnapshot.empty) {
-        logger.info('No active tips polls found for odds update');
+        logger.info('No tips polls found for odds update');
         return;
       }
       
-      logger.info(`Found ${tipsSnapshot.size} active tips polls to update`);
+      logger.info(`Found ${tipsSnapshot.size} tips polls to update`);
       
       // Get unique game IDs from all polls
       const gameIds = new Set<string>();
@@ -784,14 +1158,17 @@ export const scheduledUpdateTipsOdds = onSchedule(
          const tipsPoll = doc.data();
          const updatedGames = tipsPoll.games.map((game: TippableGame) => {
            const odds = gameOdds[game.gameId];
-           if (odds && odds.body?.sportsBooks?.[0]?.odds) {
-             const firstBook = odds.body.sportsBooks[0].odds;
+           if (odds && odds.body?.sportsBooks?.length > 0) {
+             const winProbs = calculateConsensusWinProbabilities(odds.body.sportsBooks);
+             const avgSpread = calculateAverageSpread(odds.body.sportsBooks);
+             const avgTotal = calculateAverageTotal(odds.body.sportsBooks);
+             
              return {
                ...game,
-               homeWinProbability: firstBook.homeTeamMLOdds ? moneylineToWinProbability(firstBook.homeTeamMLOdds) : game.homeWinProbability,
-               awayWinProbability: firstBook.awayTeamMLOdds ? moneylineToWinProbability(firstBook.awayTeamMLOdds) : game.awayWinProbability,
-               spread: firstBook.homeTeamSpread ? safeParseFloat(firstBook.homeTeamSpread) : game.spread,
-               total: firstBook.totalOver ? safeParseFloat(firstBook.totalOver) : game.total
+               homeWinProbability: winProbs.home,
+               awayWinProbability: winProbs.away,
+               spread: avgSpread,
+               total: avgTotal
              };
            }
            return game;

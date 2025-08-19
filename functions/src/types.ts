@@ -3,6 +3,40 @@ import * as admin from "firebase-admin";
 
 export type PlayerPosition = 'QB' | 'RB' | 'WR' | 'TE';
 
+// Basic type for a player (used in auto-assistant)
+export interface Player {
+    id: string;
+    entityType: 'player';
+    name: string;
+    position: string;
+    team: string;
+    byeWeek: number;
+    actualPPG: number;
+    projectedPPG: number;
+    rawSeasonStats?: {
+        fantasyPointsDefault?: {
+            standard?: string | number;
+        };
+        gamesPlayed?: string | number;
+    };
+}
+
+// Basic type for a team (used in auto-assistant)
+export interface Team {
+    id: string;
+    entityType: 'team';
+    name: string;
+    byeWeek: number;
+    actualPPG: number;
+    projectedPPG: number;
+    position: string;
+    seasonRecord?: { wins: number, losses: number, ties: number };
+    seasonFP_Defense?: number;
+    seasonFP_Passing?: number;
+    seasonFP_Rushing?: number;
+    seasonFP_ST?: number;
+}
+
 // Types needed for TEAM point calculations
 export interface TeamDefenseStatsCalc { // Structure for calculateDefensePoints (Parsed from DST)
     ptsAllowed?: number; defInt?: number; fumRec?: number;
@@ -228,6 +262,9 @@ export interface LineupPick {
     type: 'player' | 'team';
     selectedAt: admin.firestore.Timestamp;
     gameIdForWeek?: string; // Added: The specific game ID for this pick for the given week
+    // Optimization: Store names to avoid additional fetches when viewing lineups
+    name?: string; // Player/Team name (optional for backward compatibility)
+    teamAbbreviation?: string; // Team abbreviation (optional for backward compatibility)
 }
 export interface FirestoreWeeklyLineup {
     userId: string;
@@ -239,6 +276,10 @@ export interface FirestoreWeeklyLineup {
     lastUpdated: admin.firestore.Timestamp;
     totalActualPoints?: number | null; // Renamed from totalPoints and made optional for clarity
     captainPlayerId?: string | null; // ID of the player designated as Captain
+    // Derived captain analytics fields (optional; written by score calc for analytics cards)
+    captainBasePoints?: number | null;
+    captainMultipliedPoints?: number | null;
+    captainPosition?: string | null;
 }
 
 // Usage Count Structure
@@ -306,6 +347,13 @@ export interface FirestoreUser {
     firstName?: string;
     lastName?: string;
     fcmToken?: string; // Firebase Cloud Messaging token
+    webPushSubscription?: {
+        endpoint: string;
+        keys: {
+            auth: string;
+            p256dh: string;
+        };
+    };
     notificationPreferences?: NotificationPreferences;
     createdAt: admin.firestore.Timestamp;
     lastLoginAt?: admin.firestore.Timestamp;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Link, useLocation } from "react-router";
 import { useSidebar } from "../context/SidebarContext";
+import { useHeader } from "../context/HeaderContext";
 import { ThemeToggleButton } from "../components/common/ThemeToggleButton";
 import NotificationDropdown from "../components/header/NotificationDropdown";
 import UserDropdown from "../components/header/UserDropdown";
@@ -15,7 +16,7 @@ const getPageTitle = (pathname: string): string => {
   if (pathname === '/profile') return 'Profile';
   if (pathname === '/gamecenter') return 'Game Center';
   if (pathname.startsWith('/leagues/') && pathname.includes('/detail')) return 'League Details';
-  if (pathname === '/admin') return 'Admin';
+  if (pathname.startsWith('/admin')) return 'Admin';
   
   // Default fallback
   return 'Easy Fantasy';
@@ -26,6 +27,7 @@ const AppHeader: React.FC = () => {
   const location = useLocation();
 
   const { isMobileOpen, toggleSidebar, toggleMobileSidebar } = useSidebar();
+  const { headerTitle } = useHeader();
 
   const handleToggle = () => {
     if (window.innerWidth >= 1024) {
@@ -101,46 +103,51 @@ const AppHeader: React.FC = () => {
             {/* Cross Icon */}
           </button>
 
-          {/* Mobile: Logo on left, Page title in center */}
-          <Link to="/" className="lg:hidden">
-            <img
-              className="dark:hidden h-8"
-              src="/images/logo/logo-new.svg"
-              alt="Logo"
-            />
-            <img
-              className="hidden dark:block h-8"
-              src="/images/logo/logo-new-dark.svg"
-              alt="Logo"
-            />
-          </Link>
+          {/* Mobile: Logo on left (fixed width) */}
+          <div className="flex justify-start items-center w-16 lg:hidden">
+            <Link to="/">
+              <img
+                className="dark:hidden h-8"
+                src="/images/logo/logo-only.svg"
+                alt="Logo"
+              />
+              <img
+                className="hidden dark:block h-8"
+                src="/images/logo/logo-only-dark.svg"
+                alt="Logo"
+              />
+            </Link>
+          </div>
           
           {/* Mobile: Dynamic page title in center */}
           <div className="flex-1 text-center lg:hidden">
             <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {getPageTitle(location.pathname)}
+              {headerTitle || getPageTitle(location.pathname)}
             </h1>
           </div>
 
-          <button
-            onClick={toggleApplicationMenu}
-            className="flex items-center justify-center w-10 h-10 text-gray-700 rounded-lg z-99999 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 lg:hidden"
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
+          {/* Mobile: Menu button on right (fixed width) */}
+          <div className="flex justify-end items-center w-16 lg:hidden">
+            <button
+              onClick={toggleApplicationMenu}
+              className="flex items-center justify-center w-10 h-10 text-gray-700 rounded-lg z-99999 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
             >
-              <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M5.99902 10.4951C6.82745 10.4951 7.49902 11.1667 7.49902 11.9951V12.0051C7.49902 12.8335 6.82745 13.5051 5.99902 13.5051C5.1706 13.5051 4.49902 12.8335 4.49902 12.0051V11.9951C4.49902 11.1667 5.1706 10.4951 5.99902 10.4951ZM17.999 10.4951C18.8275 10.4951 19.499 11.1667 19.499 11.9951V12.0051C19.499 12.8335 18.8275 13.5051 17.999 13.5051C17.1706 13.5051 16.499 12.8335 16.499 12.0051V11.9951C16.499 11.1667 17.1706 10.4951 17.999 10.4951ZM13.499 11.9951C13.499 11.1667 12.8275 10.4951 11.999 10.4951C11.1706 10.4951 10.499 11.1667 10.499 11.9951V12.0051C10.499 12.8335 11.1706 13.5051 11.999 13.5051C12.8275 13.5051 13.499 12.8335 13.499 12.0051V11.9951Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  fillRule="evenodd"
+                  clipRule="evenodd"
+                  d="M5.99902 10.4951C6.82745 10.4951 7.49902 11.1667 7.49902 11.9951V12.0051C7.49902 12.8335 6.82745 13.5051 5.99902 13.5051C5.1706 13.5051 4.49902 12.8335 4.49902 12.0051V11.9951C4.49902 11.1667 5.1706 10.4951 5.99902 10.4951ZM17.999 10.4951C18.8275 10.4951 19.499 11.1667 19.499 11.9951V12.0051C19.499 12.8335 18.8275 13.5051 17.999 13.5051C17.1706 13.5051 16.499 12.8335 16.499 12.0051V11.9951C16.499 11.1667 17.1706 10.4951 17.999 10.4951ZM13.499 11.9951C13.499 11.1667 12.8275 10.4951 11.999 10.4951C11.1706 10.4951 10.499 11.1667 10.499 11.9951V12.0051C10.499 12.8335 11.1706 13.5051 11.999 13.5051C12.8275 13.5051 13.499 12.8335 13.499 12.0051V11.9951Z"
+                  fill="currentColor"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
         <div
           className={`${

@@ -7,6 +7,8 @@ import * as admin from "firebase-admin";
 import { Timestamp } from "firebase-admin/firestore";
 // Import config, helpers, types
 import { statsSyncOptions, secrets, hosts, config } from './config';
+import { sendWebPushToUser } from './notifications';
+import { performWeeklyScoreCalculation } from './lineupProcessing';
 import { safeParseFloat, safeParseInt, calculateCurrentNFLWeek } from './common';
 import {
     BoxScoreResponse, BoxScoreBody, GameInfoForWeek,
@@ -221,8 +223,13 @@ async function fetchAndProcessSingleGameStats(gameId: string, week: number, seas
                     halfPpr: safeParseFloat(rawStatsFromApi.fantasyPointsDefault?.halfPPR),
                 };
 
-                // Prepare Firestore data - NO custom player calculation needed
+                // Check if this game was already processed to prevent duplicate aggregation
                 const gameStatsRef = db.collection('players').doc(playerId).collection('gamestats').doc(gameId);
+                const existingGameStats = await gameStatsRef.get();
+                const existingFantasyPoints = existingGameStats.exists ? existingGameStats.data()?.fantasyPoints : null;
+                const pointsChanged = existingFantasyPoints !== fantasyPointsFromApi;
+                
+                // Prepare Firestore data - NO custom player calculation needed
                 const statsData: FirestorePlayerGameStat = {
                     gameId: gameId, season: season, week: week,
                     nflTeamId: rawStatsFromApi.teamID,
@@ -237,13 +244,35 @@ async function fetchAndProcessSingleGameStats(gameId: string, week: number, seas
                 gameBatch.set(gameStatsRef, statsData, { merge: true });
                 operationsCount++;
 
-                // Atomically update season total fantasy points for the player
-                const playerRef = db.collection('players').doc(playerId);
-                gameBatch.update(playerRef, {
-                    seasonFantasyPoints: admin.firestore.FieldValue.increment(fantasyPointsFromApi),
-                    // gamesPlayed is managed by dataSync.ts from API stats for players
-                });
-                operationsCount++; // Increment for the update operation
+                // Only update season totals if points changed (prevents duplicate aggregation)
+                if (pointsChanged) {
+                    const playerRef = db.collection('players').doc(playerId);
+                    if (existingFantasyPoints !== null) {
+                        // Update: subtract old points, add new points
+                        const pointsDifference = fantasyPointsFromApi - existingFantasyPoints;
+                        gameBatch.update(playerRef, {
+                            seasonFantasyPoints: admin.firestore.FieldValue.increment(pointsDifference),
+                        });
+                        logger.info(`Updated player ${playerId} game ${gameId}: ${existingFantasyPoints} → ${fantasyPointsFromApi} (diff: ${pointsDifference})`);
+                    } else {
+                        // New game: add points
+                        gameBatch.update(playerRef, {
+                            seasonFantasyPoints: admin.firestore.FieldValue.increment(fantasyPointsFromApi),
+                        });
+                        logger.info(`New player ${playerId} game ${gameId}: +${fantasyPointsFromApi} points`);
+                    }
+                    operationsCount++; // Increment for the update operation
+                } else {
+                    logger.info(`Player ${playerId} game ${gameId} already processed with ${fantasyPointsFromApi} points - skipping season total update`);
+                }
+
+                // Check for performance notifications (fire-and-forget)
+                if (fantasyPointsFromApi >= 10) {
+                    const playerName = rawStatsFromApi.longName || 'Unknown Player';
+                    checkPlayerPerformanceNotifications(playerId, playerName, fantasyPointsFromApi, gameId, week, season).catch(error => {
+                        logger.warn(`Performance notification check failed for player ${playerId}:`, error);
+                    });
+                }
             }
         }
 
@@ -288,8 +317,17 @@ async function fetchAndProcessSingleGameStats(gameId: string, week: number, seas
             const fantasyPointsDefense = calculateDefensePoints(gameStatsForCalc);
             const fantasyPointsSpecialTeams = calculateSpecialTeamsPoints(gameStatsForCalc);
 
-            // Prepare Firestore data
+            // Check if this team game was already processed to prevent duplicate aggregation
             const gameStatsRef = db.collection('teams').doc(teamId).collection('gamestats').doc(gameId);
+            const existingTeamGameStats = await gameStatsRef.get();
+            const existingTeamPoints = existingTeamGameStats.exists ? existingTeamGameStats.data() : null;
+            const teamPointsChanged = !existingTeamPoints ||
+                existingTeamPoints.fantasyPointsPassing !== fantasyPointsPassing ||
+                existingTeamPoints.fantasyPointsRushing !== fantasyPointsRushing ||
+                existingTeamPoints.fantasyPointsDefense !== fantasyPointsDefense ||
+                existingTeamPoints.fantasyPointsSpecialTeams !== fantasyPointsSpecialTeams;
+            
+            // Prepare Firestore data
             const statsData: FirestoreTeamGameStat = {
                 gameId: gameId, season: season, week: week,
                 rawTeamBoxScoreStats: teamStatsRaw, rawDefBoxScoreStats: defStatsRaw,
@@ -304,16 +342,37 @@ async function fetchAndProcessSingleGameStats(gameId: string, week: number, seas
             gameBatch.set(gameStatsRef, statsData, { merge: true });
             operationsCount++;
 
-            // Atomically update season total fantasy points and games played for the team
-            const teamRef = db.collection('teams').doc(teamId);
-            gameBatch.update(teamRef, {
-                seasonFP_Passing: admin.firestore.FieldValue.increment(fantasyPointsPassing),
-                seasonFP_Rushing: admin.firestore.FieldValue.increment(fantasyPointsRushing),
-                seasonFP_Defense: admin.firestore.FieldValue.increment(fantasyPointsDefense),
-                seasonFP_ST: admin.firestore.FieldValue.increment(fantasyPointsSpecialTeams),
-                // gamesPlayed: admin.firestore.FieldValue.increment(1) // Removed: gamesPlayed for teams is now managed by dataSync.ts from season record
-            });
-            operationsCount++; // Increment for the update operation
+            // Only update season totals if points changed (prevents duplicate aggregation)
+            if (teamPointsChanged) {
+                const teamRef = db.collection('teams').doc(teamId);
+                if (existingTeamPoints) {
+                    // Update: calculate differences and adjust
+                    const passingDiff = fantasyPointsPassing - (existingTeamPoints.fantasyPointsPassing || 0);
+                    const rushingDiff = fantasyPointsRushing - (existingTeamPoints.fantasyPointsRushing || 0);
+                    const defenseDiff = fantasyPointsDefense - (existingTeamPoints.fantasyPointsDefense || 0);
+                    const stDiff = fantasyPointsSpecialTeams - (existingTeamPoints.fantasyPointsSpecialTeams || 0);
+                    
+                    gameBatch.update(teamRef, {
+                        seasonFP_Passing: admin.firestore.FieldValue.increment(passingDiff),
+                        seasonFP_Rushing: admin.firestore.FieldValue.increment(rushingDiff),
+                        seasonFP_Defense: admin.firestore.FieldValue.increment(defenseDiff),
+                        seasonFP_ST: admin.firestore.FieldValue.increment(stDiff),
+                    });
+                    logger.info(`Updated team ${teamId} game ${gameId}: Passing ${passingDiff}, Rushing ${rushingDiff}, Defense ${defenseDiff}, ST ${stDiff}`);
+                } else {
+                    // New game: add all points
+                    gameBatch.update(teamRef, {
+                        seasonFP_Passing: admin.firestore.FieldValue.increment(fantasyPointsPassing),
+                        seasonFP_Rushing: admin.firestore.FieldValue.increment(fantasyPointsRushing),
+                        seasonFP_Defense: admin.firestore.FieldValue.increment(fantasyPointsDefense),
+                        seasonFP_ST: admin.firestore.FieldValue.increment(fantasyPointsSpecialTeams),
+                    });
+                    logger.info(`New team ${teamId} game ${gameId}: +${fantasyPointsPassing}P +${fantasyPointsRushing}R +${fantasyPointsDefense}D +${fantasyPointsSpecialTeams}ST`);
+                }
+                operationsCount++; // Increment for the update operation
+            } else {
+                logger.info(`Team ${teamId} game ${gameId} already processed with same points - skipping season total update`);
+            }
         }
 
         // Commit batch
@@ -395,8 +454,16 @@ export const manualFetchAndProcessGameStatsForWeek = onCall(
                  // Optional delay: await new Promise(resolve => setTimeout(resolve, 250));
             }
 
+            // After stats are processed, calculate lineup totals and update standings
+            try {
+                const calcResult = await performWeeklyScoreCalculation(week, season);
+                logger.info(`Post-stats weekly scores calculation: ${calcResult.message}`);
+            } catch (calcErr) {
+                logger.error('Error during post-stats weekly scores calculation:', calcErr);
+            }
+
             // Return summary
-            const summaryMessage = `Stats fetch & team point calculation completed week ${week}, season ${season}. Success: ${successCount}, Failures: ${failureCount}.`;
+            const summaryMessage = `Stats fetch & team point calculation completed week ${week}, season ${season}. Success: ${successCount}, Failures: ${failureCount}. Standings calculation queued.`;
             logger.info(summaryMessage);
             return { success: failureCount === 0, message: summaryMessage };
 
@@ -418,7 +485,7 @@ export const scheduledGameStatsAndScoresSync = onSchedule(
   {
     ...statsSyncOptions,
     schedule: '*/5 * * * *', // Every 5 minutes
-    timeZone: 'America/New_York', // NFL timezone
+    timeZone: 'Europe/Berlin',
   },
   async () => {
     try {
@@ -475,3 +542,329 @@ export const scheduledGameStatsAndScoresSync = onSchedule(
     }
   }
 );
+
+/**
+ * Check for users who have this player and send performance notifications
+ */
+async function checkPlayerPerformanceNotifications(
+  playerId: string, 
+  playerName: string, 
+  fantasyPoints: number, 
+  gameId: string, 
+  week: number, 
+  season: number
+): Promise<void> {
+  try {
+    // Find all users who have this player in their lineups for this week
+    const lineupCollectionGroup = db.collectionGroup('weeklyLineups');
+    const lineupQuery = lineupCollectionGroup
+      .where('season', '==', season)
+      .where('week', '==', week);
+    
+    const lineupSnapshot = await lineupQuery.get();
+    
+
+    
+    for (const lineupDoc of lineupSnapshot.docs) {
+      const lineupData = lineupDoc.data();
+      const picks = lineupData.picks || {};
+      const userId = lineupData.userId;
+      const captainPlayerId = lineupData.captainPlayerId;
+      
+      // Check if this player is in the user's lineup
+      const hasPlayer = Object.values(picks).some((pick: unknown) => 
+        (pick as { id?: string; type?: string })?.id === playerId && (pick as { id?: string; type?: string })?.type === 'player'
+      );
+      
+      if (hasPlayer && userId) {
+        const isCaptain = captainPlayerId === playerId;
+        
+        // Get league settings to apply captain multiplier
+        const leagueId = lineupData.leagueId;
+        let captainMultiplier = 1.0;
+        let enableCaptainFeature = false;
+        
+        if (isCaptain && leagueId) {
+          try {
+            const leagueDoc = await db.collection('leagues').doc(leagueId).get();
+            if (leagueDoc.exists) {
+              const leagueSettings = leagueDoc.data();
+              enableCaptainFeature = leagueSettings?.enableCaptainFeature === true;
+              captainMultiplier = typeof leagueSettings?.captainPointMultiplier === 'number' ? leagueSettings.captainPointMultiplier : 1.0;
+            }
+          } catch (leagueError) {
+            logger.warn(`Failed to fetch league settings for ${leagueId}:`, leagueError);
+          }
+        }
+
+        // Apply captain multiplier to points for notification
+        const displayPoints = isCaptain && enableCaptainFeature ? 
+          Math.round((fantasyPoints * captainMultiplier) * 100) / 100 : 
+          fantasyPoints;
+
+        let notificationType = '' as 'captain_success' | 'big_performance' | 'scoring_update' | '';
+        if (isCaptain && displayPoints >= 15) notificationType = 'captain_success';
+        else if (displayPoints >= 20) notificationType = 'big_performance';
+        else if (displayPoints >= 10) notificationType = 'scoring_update';
+
+        if (!notificationType) continue;
+
+        // Create notification tracking ID to prevent duplicates
+        const notificationId = `${userId}_${playerId}_${notificationType}_${gameId}_${week}`;
+        
+        // Check if we've already sent this notification
+        try {
+          const notificationTrackingRef = db.collection('notificationTracking').doc(notificationId);
+          const existingNotification = await notificationTrackingRef.get();
+          
+          if (existingNotification.exists) {
+            logger.info(`Notification already sent for ${notificationId}, skipping duplicate`);
+            continue;
+          }
+          
+          // Mark this notification as sent
+          await notificationTrackingRef.set({
+            userId,
+            playerId,
+            playerName,
+            notificationType,
+            gameId,
+            week,
+            season,
+            points: displayPoints,
+            sentAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        } catch (trackingError) {
+          logger.warn(`Failed to check/set notification tracking for ${notificationId}:`, trackingError);
+          // Continue anyway - better to potentially send duplicate than miss notification
+        }
+
+        // Fetch user prefs and token
+        const userSnap = await db.collection('users').doc(userId).get();
+        const userData = userSnap.data() as { fcmToken?: string; notificationPreferences?: { enabled?: boolean; scoringAlerts?: boolean; captainSuccessAlerts?: boolean } } | undefined;
+        const fcmToken = userData?.fcmToken;
+        const prefs = userData?.notificationPreferences || {};
+        if (!fcmToken || !prefs.enabled || !prefs.scoringAlerts) continue;
+        if (notificationType === 'captain_success' && prefs.captainSuccessAlerts === false) continue;
+
+        const title = notificationType === 'captain_success'
+          ? '🔥 Captain Success!'
+          : notificationType === 'big_performance'
+          ? '🚀 Big Performance!'
+          : '📈 Scoring Update';
+        const body = notificationType === 'captain_success'
+          ? `Your captain ${playerName} scored ${displayPoints} points!`
+          : notificationType === 'big_performance'
+          ? `${playerName} is having a huge game with ${displayPoints} points!`
+          : `${playerName} just scored! Now at ${displayPoints} fantasy points`;
+
+        try {
+          // Send FCM notification
+          await admin.messaging().send({
+            token: fcmToken,
+            notification: { title, body },
+            data: {
+              type: notificationType,
+              playerName,
+              points: String(displayPoints),
+              gameId,
+              week: String(week),
+              season: String(season),
+            },
+          });
+          
+          // Save notification to Firestore for in-app display
+          const userNotificationRef = db.collection('users').doc(userId).collection('notifications').doc();
+          await userNotificationRef.set({
+            type: notificationType,
+            title,
+            body,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            readAt: null,
+            data: {
+              playerName,
+              points: String(displayPoints),
+              gameId,
+              week: String(week),
+              season: String(season),
+            },
+            channel: 'push',
+            source: 'performance_alert'
+          });
+          
+          logger.info(`Performance alert sent to ${userId} (${notificationType}) - FCM + Firestore saved`);
+          
+          // Attempt Web Push as well
+          await sendWebPushToUser(userId, { title, body, data: { type: notificationType, playerName, points: String(displayPoints), gameId, week, season } });
+        } catch (sendErr) {
+          logger.warn(`Failed to send performance alert to ${userId}`, sendErr);
+        }
+      }
+    }
+    
+    // Performance events are logged for monitoring
+    
+  } catch (error) {
+    logger.error(`Error checking performance notifications for player ${playerId}:`, error);
+  }
+}
+
+/**
+ * Repair season fantasy points by recalculating from individual game stats
+ */
+/**
+ * Clean up old notification tracking records (older than 7 days)
+ * Run periodically to prevent collection from growing too large
+ */
+export const cleanupNotificationTracking = onSchedule(
+  {
+    ...statsSyncOptions,
+    schedule: '0 2 * * *', // Daily at 2 AM
+    timeZone: 'Europe/Berlin',
+  },
+  async () => {
+    logger.info('Starting notification tracking cleanup...');
+    
+    try {
+      const sevenDaysAgo = admin.firestore.Timestamp.fromDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+      
+      const oldNotificationsQuery = db.collection('notificationTracking')
+        .where('sentAt', '<', sevenDaysAgo)
+        .limit(500); // Process in batches
+      
+      const snapshot = await oldNotificationsQuery.get();
+      
+      if (snapshot.empty) {
+        logger.info('No old notification tracking records to clean up');
+        return;
+      }
+      
+      const batch = db.batch();
+      snapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      
+      await batch.commit();
+      logger.info(`Cleaned up ${snapshot.size} old notification tracking records`);
+      
+    } catch (error) {
+      logger.error('Error cleaning up notification tracking:', error);
+    }
+  }
+);
+
+export const repairSeasonFantasyPoints = onCall(
+  { ...statsSyncOptions },
+  async (request) => {
+    if (request.auth?.token?.admin !== true) throw new HttpsError('permission-denied', 'Admin only.');
+    
+    const { season, playersOnly, teamsOnly } = request.data;
+    const currentSeason = season || getCurrentSeason();
+    
+    logger.info(`Admin ${request.auth?.uid} repairing season fantasy points for season ${currentSeason}`);
+    
+    try {
+      let playersRepaired = 0;
+      let teamsRepaired = 0;
+      
+      // Repair players if not teamsOnly
+      if (!teamsOnly) {
+        logger.info('Repairing player season fantasy points...');
+        const playersSnapshot = await db.collection('players').get();
+        
+        for (const playerDoc of playersSnapshot.docs) {
+          const playerId = playerDoc.id;
+          
+          // Get all game stats for this player
+          const gameStatsSnapshot = await db.collection('players')
+            .doc(playerId)
+            .collection('gamestats')
+            .where('season', '==', currentSeason)
+            .get();
+          
+          // Calculate correct total
+          let correctTotal = 0;
+          for (const gameStatDoc of gameStatsSnapshot.docs) {
+            const gameData = gameStatDoc.data();
+            correctTotal += gameData.fantasyPoints || 0;
+          }
+          
+          // Update if different
+          const currentTotal = playerDoc.data().seasonFantasyPoints || 0;
+          if (Math.abs(currentTotal - correctTotal) > 0.01) { // Account for floating point precision
+            await playerDoc.ref.update({ seasonFantasyPoints: correctTotal });
+            logger.info(`Repaired player ${playerId}: ${currentTotal} → ${correctTotal}`);
+            playersRepaired++;
+          }
+        }
+      }
+      
+      // Repair teams if not playersOnly
+      if (!playersOnly) {
+        logger.info('Repairing team season fantasy points...');
+        const teamsSnapshot = await db.collection('teams').get();
+        
+        for (const teamDoc of teamsSnapshot.docs) {
+          const teamId = teamDoc.id;
+          
+          // Get all game stats for this team
+          const gameStatsSnapshot = await db.collection('teams')
+            .doc(teamId)
+            .collection('gamestats')
+            .where('season', '==', currentSeason)
+            .get();
+          
+          // Calculate correct totals
+          let correctPassing = 0;
+          let correctRushing = 0;
+          let correctDefense = 0;
+          let correctST = 0;
+          
+          for (const gameStatDoc of gameStatsSnapshot.docs) {
+            const gameData = gameStatDoc.data();
+            correctPassing += gameData.fantasyPointsPassing || 0;
+            correctRushing += gameData.fantasyPointsRushing || 0;
+            correctDefense += gameData.fantasyPointsDefense || 0;
+            correctST += gameData.fantasyPointsSpecialTeams || 0;
+          }
+          
+          // Update if different
+          const currentData = teamDoc.data();
+          const currentPassing = currentData.seasonFP_Passing || 0;
+          const currentRushing = currentData.seasonFP_Rushing || 0;
+          const currentDefense = currentData.seasonFP_Defense || 0;
+          const currentST = currentData.seasonFP_ST || 0;
+          
+          const needsRepair = 
+            Math.abs(currentPassing - correctPassing) > 0.01 ||
+            Math.abs(currentRushing - correctRushing) > 0.01 ||
+            Math.abs(currentDefense - correctDefense) > 0.01 ||
+            Math.abs(currentST - correctST) > 0.01;
+          
+          if (needsRepair) {
+            await teamDoc.ref.update({
+              seasonFP_Passing: correctPassing,
+              seasonFP_Rushing: correctRushing,
+              seasonFP_Defense: correctDefense,
+              seasonFP_ST: correctST,
+            });
+            logger.info(`Repaired team ${teamId}: P(${currentPassing}→${correctPassing}) R(${currentRushing}→${correctRushing}) D(${currentDefense}→${correctDefense}) ST(${currentST}→${correctST})`);
+            teamsRepaired++;
+          }
+        }
+      }
+      
+      return {
+        success: true,
+        message: `Repaired ${playersRepaired} players and ${teamsRepaired} teams`,
+        playersRepaired,
+        teamsRepaired
+      };
+    } catch (error) {
+      logger.error('Error repairing season fantasy points:', error);
+      throw new HttpsError('internal', 'Failed to repair season fantasy points');
+    }
+  }
+);
+
+// Performance notifications can be triggered via admin interface for testing

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import { getQuickPerformanceData } from '../../services/analyticsService';
 import { Link } from 'react-router';
@@ -17,34 +18,15 @@ interface QuickPerformanceCardProps {
 
 export default function QuickPerformanceCard({ leagueId }: QuickPerformanceCardProps) {
   const { user } = useAuth();
-  const [performanceData, setPerformanceData] = useState<QuickPerformanceData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchPerformanceData = async () => {
-      if (!user?.uid || !leagueId) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-        
-        const data = await getQuickPerformanceData(user.uid, leagueId);
-        setPerformanceData(data);
-        
-      } catch (err) {
-        console.error('Error fetching performance data:', err);
-        setError('Unable to load performance data');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchPerformanceData();
-  }, [user?.uid, leagueId]);
+  const enabled = !!(user?.uid && leagueId);
+  const { data: performanceData, isLoading: loading, isError } = useQuery<QuickPerformanceData>({
+    queryKey: ['analytics', 'quick', user?.uid, leagueId],
+    queryFn: () => getQuickPerformanceData(user!.uid, leagueId!),
+    enabled,
+    staleTime: 30_000,
+  });
+  const errorMessage = useMemo(() => (isError ? 'Unable to load performance data' : null), [isError]);
 
   // Loading state
   if (loading) {
@@ -63,14 +45,14 @@ export default function QuickPerformanceCard({ leagueId }: QuickPerformanceCardP
   }
 
   // Error state
-  if (error) {
+  if (errorMessage) {
     return (
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
           Quick Performance
         </h2>
         <div className="text-center py-4">
-          <div className="text-gray-500 dark:text-gray-400 text-sm">{error}</div>
+          <div className="text-gray-500 dark:text-gray-400 text-sm">{errorMessage}</div>
           <button 
             onClick={() => window.location.reload()}
             className="mt-2 text-blue-600 hover:text-blue-700 text-sm"
@@ -97,18 +79,12 @@ export default function QuickPerformanceCard({ leagueId }: QuickPerformanceCardP
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
             Your performance analytics will appear here once games are played and scored
           </p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="flex justify-center">
             <Link
               to="/lineup"
-              className="flex items-center justify-center py-2 px-3 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors"
+              className="flex items-center justify-center py-2 px-4 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-md text-sm font-medium text-blue-700 dark:text-blue-300 transition-colors"
             >
-              📝 Lineup
-            </Link>
-            <Link
-              to="/leagues"
-              className="flex items-center justify-center py-2 px-3 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors"
-            >
-              🏆 Leagues
+              📝 Set Lineup
             </Link>
           </div>
         </div>
@@ -136,12 +112,9 @@ export default function QuickPerformanceCard({ leagueId }: QuickPerformanceCardP
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
           Quick Performance
         </h2>
-        <Link 
-          to="/analytics" 
-          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-        >
-          View All →
-        </Link>
+        <div className="text-sm text-gray-500 dark:text-gray-400">
+          Performance Overview
+        </div>
       </div>
 
       <div className="space-y-4">
@@ -201,18 +174,12 @@ export default function QuickPerformanceCard({ leagueId }: QuickPerformanceCardP
 
         {/* Quick Actions */}
         <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="flex justify-center">
             <Link
               to="/lineup"
-              className="flex items-center justify-center py-2 px-3 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors"
+              className="flex items-center justify-center py-2 px-4 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-md text-sm font-medium text-blue-700 dark:text-blue-300 transition-colors"
             >
-              📝 Lineup
-            </Link>
-            <Link
-              to="/analytics"
-              className="flex items-center justify-center py-2 px-3 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors"
-            >
-              📊 Analytics
+              📝 Set Lineup
             </Link>
           </div>
         </div>

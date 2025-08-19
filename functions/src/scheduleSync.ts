@@ -7,7 +7,7 @@ import * as admin from "firebase-admin";
 import { Timestamp } from "firebase-admin/firestore";
 // Import config, helpers, types
 import { scheduleSyncOptions, secrets, hosts, config } from './config';
-import { calculateCurrentNFLWeek } from './common';
+import { calculateCurrentNFLWeek, getAPIWeekNumber, getCurrentSeasonType } from './common';
 import { GamesForWeekResponse, GameInfoForWeek, FirestoreWeeklySchedule } from './types'; // Import Firestore type too
 
 const db = admin.firestore();
@@ -20,11 +20,18 @@ const getTank01Headers = () => ({
  * Fetches the NFL game schedule for a specific week from the API.
  */
 async function fetchNFLWeeklyGamesFromAPI(week: number, season: number): Promise<GameInfoForWeek[]> {
-    logger.info(`Fetching NFL schedule from API for week ${week}, season ${season}...`);
+    const apiWeek = getAPIWeekNumber(week);
+    const seasonType = getCurrentSeasonType();
+    
+    logger.info(`Fetching NFL schedule from API for internal week ${week} (API week ${apiWeek}), season ${season}, type ${seasonType}...`);
     try {
         const response = await axios.request<GamesForWeekResponse>({
             method: 'GET', url: `https://${hosts.TANK01_NFL_API}/getNFLGamesForWeek`,
-            params: { week: week.toString(), season: season.toString(), seasonType: 'reg' }, // Use correct season
+            params: { 
+                week: apiWeek.toString(), 
+                season: season.toString(), 
+                seasonType: seasonType 
+            },
             headers: getTank01Headers(),
         });
         if (!Array.isArray(response.data?.body)) {
@@ -33,7 +40,7 @@ async function fetchNFLWeeklyGamesFromAPI(week: number, season: number): Promise
         }
         // Filter out games without a valid gameID
         const validGames = response.data.body.filter(g => typeof g?.gameID === 'string' && g.gameID.length > 0);
-        logger.info(`Fetched ${validGames.length} valid games from API for week ${week}.`);
+        logger.info(`Fetched ${validGames.length} valid games from API for internal week ${week} (API week ${apiWeek}, ${seasonType}).`);
         return validGames;
     } catch (error) {
         const axiosError = error as import("axios").AxiosError;
@@ -88,10 +95,30 @@ async function createTipsPollsForAllLeagues(week: number, season: number, games:
         
         logger.info(`Found ${leaguesSnapshot.size} leagues with tipping enabled`);
         
+        // Debug: Log first few games to see their time structure
+        logger.info('DEBUG: First 3 games time data:', games.slice(0, 3).map(g => ({
+            gameID: g.gameID,
+            gameTime_epoch: g.gameTime_epoch,
+            gameDate: g.gameDate,
+            home: g.home,
+            away: g.away
+        })));
+
         // Calculate lock time - 30 minutes before first game
-        const firstGameTime = Math.min(...games.map(game => 
-            game.gameTime_epoch ? parseInt(String(game.gameTime_epoch)) * 1000 : Date.now()
-        ));
+        const gameTimes = games.map(game => {
+            if (game.gameTime_epoch) {
+                const timeNum = parseInt(String(game.gameTime_epoch));
+                const timeMs = timeNum * 1000;
+                logger.info(`DEBUG: Game ${game.gameID} - epoch: ${game.gameTime_epoch} -> ${timeNum} -> ${new Date(timeMs).toISOString()}`);
+                return timeMs;
+            } else {
+                logger.warn(`DEBUG: Game ${game.gameID} has no gameTime_epoch, using far future`);
+                // Use far future instead of Date.now() to avoid locking immediately
+                return Date.now() + (7 * 24 * 60 * 60 * 1000); // 1 week from now
+            }
+        });
+        
+        const firstGameTime = Math.min(...gameTimes);
         const lockTime = Timestamp.fromMillis(firstGameTime - (30 * 60 * 1000));
         
         const batch = db.batch();
@@ -109,17 +136,30 @@ async function createTipsPollsForAllLeagues(week: number, season: number, games:
             }
             
             // Create basic tippable games (we'll update odds separately)
-            const tippableGames = games.map(game => ({
-                gameId: game.gameID,
-                homeTeam: game.home || 'HOME',
-                awayTeam: game.away || 'AWAY', 
-                gameTime: game.gameTime_epoch ? parseInt(String(game.gameTime_epoch)) * 1000 : Date.now(),
-                homeWinProbability: 50, // Default 50/50, will be updated by daily odds sync
-                awayWinProbability: 50,
-                spread: 0, // Default, will be updated by daily odds sync
-                total: 45, // Default, will be updated by daily odds sync
-                gameDate: game.gameDate || new Date().toISOString().split('T')[0]
-            }));
+            const tippableGames = games.map(game => {
+                let gameTime;
+                if (game.gameTime_epoch) {
+                    const timeNum = parseInt(String(game.gameTime_epoch));
+                    gameTime = timeNum * 1000;
+                    logger.info(`DEBUG: Tippable game ${game.gameID} - epoch: ${game.gameTime_epoch} -> ${timeNum} -> ${new Date(gameTime).toISOString()}`);
+                } else {
+                    // Use far future instead of Date.now() to avoid immediate locking
+                    gameTime = Date.now() + (7 * 24 * 60 * 60 * 1000); // 1 week from now
+                    logger.warn(`DEBUG: Tippable game ${game.gameID} has no gameTime_epoch, using far future: ${new Date(gameTime).toISOString()}`);
+                }
+                
+                return {
+                    gameId: game.gameID,
+                    homeTeam: game.home || 'HOME',
+                    awayTeam: game.away || 'AWAY', 
+                    gameTime: gameTime,
+                    homeWinProbability: 50, // Default 50/50, will be updated by daily odds sync
+                    awayWinProbability: 50,
+                    spread: 0, // Default, will be updated by daily odds sync
+                    total: 45, // Default, will be updated by daily odds sync
+                    gameDate: game.gameDate || new Date().toISOString().split('T')[0]
+                };
+            });
             
             const tipsPoll = {
                 leagueId,
@@ -162,8 +202,9 @@ export const scheduledFetchWeeklySchedule = onSchedule(
     const currentSeason = parseInt(config.CURRENT_NFL_SEASON, 10);
 
     // Don't run if we're past the max weeks or before week 1
-    if (nextWeek > config.MAX_NFL_WEEKS || nextWeek < 1) {
-        logger.info(`Skipping scheduled schedule fetch for calculated week ${nextWeek}. Outside valid range (1-${config.MAX_NFL_WEEKS}).`);
+    const maxWeeks = config.CURRENT_SEASON_TYPE === "pre" ? 4 : config.MAX_NFL_WEEKS;
+    if (nextWeek > maxWeeks || nextWeek < 1) {
+        logger.info(`Skipping scheduled schedule fetch for calculated week ${nextWeek}. Outside valid range (1-${maxWeeks}) for ${config.CURRENT_SEASON_TYPE} season.`);
         return;
     }
 
@@ -195,8 +236,9 @@ export const manualFetchWeeklySchedule = onCall(
     // Allow optional season override, default to config
     const season = request.data.season ?? parseInt(config.CURRENT_NFL_SEASON, 10);
 
-    if (typeof week !== 'number' || week < 1 || week > config.MAX_NFL_WEEKS) {
-         throw new HttpsError('invalid-argument', `Valid week number (1-${config.MAX_NFL_WEEKS}) required.`);
+    const maxWeeks = config.CURRENT_SEASON_TYPE === "pre" ? 4 : config.MAX_NFL_WEEKS;
+    if (typeof week !== 'number' || week < 1 || week > maxWeeks) {
+         throw new HttpsError('invalid-argument', `Valid week number (1-${maxWeeks}) required for ${config.CURRENT_SEASON_TYPE} season.`);
     }
      if (typeof season !== 'number' || season < 2000) { // Basic sanity check for season
          throw new HttpsError('invalid-argument', 'Valid season year required.');
@@ -357,8 +399,9 @@ export const scheduledUpdateGameStatuses = onSchedule(
         const currentWeek = calculateCurrentNFLWeek();
         const currentSeason = parseInt(config.CURRENT_NFL_SEASON, 10);
         
-        if (currentWeek < 1 || currentWeek > config.MAX_NFL_WEEKS) {
-            logger.info(`Skipping game status update for week ${currentWeek}. Outside valid range.`);
+        const maxWeeks = config.CURRENT_SEASON_TYPE === "pre" ? 4 : config.MAX_NFL_WEEKS;
+        if (currentWeek < 1 || currentWeek > maxWeeks) {
+            logger.info(`Skipping game status update for week ${currentWeek}. Outside valid range for ${config.CURRENT_SEASON_TYPE} season.`);
             return;
         }
         
@@ -390,8 +433,9 @@ export const manualUpdateGameStatuses = onCall(
         const week = request.data.week;
         const season = request.data.season ?? parseInt(config.CURRENT_NFL_SEASON, 10);
         
-        if (typeof week !== 'number' || week < 1 || week > config.MAX_NFL_WEEKS) {
-            throw new HttpsError('invalid-argument', `Valid week number required.`);
+        const maxWeeks = config.CURRENT_SEASON_TYPE === "pre" ? 4 : config.MAX_NFL_WEEKS;
+        if (typeof week !== 'number' || week < 1 || week > maxWeeks) {
+            throw new HttpsError('invalid-argument', `Valid week number (1-${maxWeeks}) required for ${config.CURRENT_SEASON_TYPE} season.`);
         }
         
         try {

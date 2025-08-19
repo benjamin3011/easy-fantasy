@@ -2,27 +2,44 @@
 import { useParams, Link } from "react-router";
 import { useEffect, useState } from "react";
 import {
-  League,
   listenToLeagueDetail
 } from "../utils/leagues";
+import type { League } from "../utils/leagues";
 import { useAuth } from "../context/AuthContext";
+import { useHeader } from "../context/HeaderContext";
 import PageMeta from "../components/common/PageMeta";
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getLeague } from '../utils/leagues';
 import ComponentCard from "../components/common/ComponentCard";
+import QueryBoundary from '../components/common/QueryBoundary';
 import Button from "../components/ui/button/Button";
 import { SkeletonPage } from "../components/ui/skeleton/SkeletonLoader";
 import PullToRefresh from "../components/ui/PullToRefresh";
 import CachedDataIndicator from "../components/common/CachedDataIndicator";
 import LeagueDetailTabs from "../components/leagues/LeagueDetailTabs";
 import StandingsTab from "../components/leagues/tabs/StandingsTab";
+
 import SettingsTab from "../components/leagues/tabs/SettingsTab";
 import LeaderboardTab from "../components/leagues/tabs/LeaderboardTab";
 
 export default function LeagueDetail() {
   const { id }   = useParams<{ id: string }>();
   const { user } = useAuth();
+  const { setHeaderTitle } = useHeader();
+  const queryClient = useQueryClient();
+  
+  // Replace useState with useQuery
+  const {
+    data: league,
+    isLoading: loading,
+    error: queryError
+  } = useQuery<League | null>({
+    queryKey: ['league', id],
+    queryFn: () => getLeague(id!),
+    enabled: !!id,
+    staleTime: 60000, // 1 minute
+  });
 
-  const [league, setLeague]   = useState<League | null>(null);
-  const [loading, setLoading] = useState(true);
   const [currentEnableCaptain, setCurrentEnableCaptain] = useState(false);
   const [currentCaptainMultiplier, setCurrentCaptainMultiplier] = useState(1.5);
   const [currentEnableWeeklyTips, setCurrentEnableWeeklyTips] = useState(false);
@@ -36,56 +53,51 @@ export default function LeagueDetail() {
   const [savingChanges, setSavingChanges] = useState(false);
   const [autoSaveInProgress, setAutoSaveInProgress] = useState<string | null>(null);
   
-  const [error, setError] = useState<string | null>(null);
 
 
 
+
+  // Add real-time sync via listener (updates cache)
   useEffect(() => {
-    if (!id) {
-      setError("No league ID provided.");
-      setLoading(false);
-      setLeague(null);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    // console.log(`Setting up listener for league ID: ${id}`); // Optional: for debugging
-
+    if (!id) return;
+    
     const unsubscribe = listenToLeagueDetail(
       id,
       (updatedLeague) => {
-        // console.log("Received league update:", updatedLeague); // Optional: for debugging
-        setLeague(updatedLeague);
-        if (updatedLeague) {
-          // Keep captain settings in sync with the latest league data
-          setCurrentEnableCaptain(updatedLeague.enableCaptainFeature ?? false);
-          setCurrentCaptainMultiplier(updatedLeague.captainPointMultiplier ?? 1.5);
-          setCurrentEnableWeeklyTips(updatedLeague.enableWeeklyTips ?? false);
-          
-          // Keep auto-settings in sync with the latest league data
-          setCurrentAutoLineupEnabled(updatedLeague.autoLineup?.enabled ?? false);
-          setCurrentAutoTipsEnabled(updatedLeague.autoTips?.enabled ?? false);
-        } else {
-          // This case might occur if the league is deleted while the user is viewing
-          setError("League not found or has been deleted.");
-        }
-        setLoading(false);
+        // Update the query cache with real-time data
+        queryClient.setQueryData(['league', id], updatedLeague);
       },
       (err) => {
-        // console.error(`Error listening to league ${id}:`, err); // Optional: for debugging
-        setError(err.message);
-        setLoading(false);
-        setLeague(null);
+        console.error("Real-time sync error:", err);
+        // Don't set error state - let the query handle errors
       }
     );
 
-    // Cleanup function
+    return () => unsubscribe();
+  }, [id, queryClient]);
+
+  // Set header title when league data changes
+  useEffect(() => {
+    if (league?.name) {
+      setHeaderTitle(league.name);
+    }
+    
+    // Cleanup: reset header title when component unmounts or league changes
     return () => {
-      // console.log(`Cleaning up listener for league ID: ${id}`); // Optional: for debugging
-      unsubscribe();
+      setHeaderTitle(null);
     };
-  }, [id]); // Re-run effect if id changes
+  }, [league?.name, setHeaderTitle]);
+
+  // Sync current state with league data when it loads/changes
+  useEffect(() => {
+    if (league) {
+      setCurrentEnableCaptain(league.enableCaptainFeature ?? false);
+      setCurrentCaptainMultiplier(league.captainPointMultiplier ?? 1.5);
+      setCurrentEnableWeeklyTips(league.enableWeeklyTips ?? false);
+      setCurrentAutoLineupEnabled(league.autoLineup?.enabled ?? false);
+      setCurrentAutoTipsEnabled(league.autoTips?.enabled ?? false);
+    }
+  }, [league]);
 
   if (!id) return null;
   
@@ -97,12 +109,12 @@ export default function LeagueDetail() {
     );
   }
   
-  if (error) {
+  if (queryError) {
     return (
       <div className="container mx-auto px-4 py-6">
         <ComponentCard title="Unable to Load League">
           <div className="p-6 text-center">
-            <p className="text-lg text-red-500 mb-4">{error}</p>
+            <p className="text-lg text-red-500 mb-4">{queryError.message}</p>
             <div className="space-y-2">
               <Link to="/leagues">
                 <Button variant="primary" size="sm">
@@ -166,7 +178,7 @@ export default function LeagueDetail() {
       <PageMeta title={`${league.name} | Easy Fantasy`} description="" />
       
       <PullToRefresh onRefresh={handleRefresh}>
-        <div className="container mx-auto px-4 py-6 pb-content-safe">
+        <div className="container mx-auto px-2 py-6 pb-content-safe">
           {/* Header Section */}
           <div className="mb-6">
             {/* Desktop: Show page title */}
@@ -200,7 +212,8 @@ export default function LeagueDetail() {
           </div>
 
           {/* Mobile: Responsive Tabs (< 768px) + Desktop: Tabs (≥ 768px) */}
-          <LeagueDetailTabs
+          <QueryBoundary>
+            <LeagueDetailTabs
             tabs={[
               {
                 id: 'standings',
@@ -240,6 +253,7 @@ export default function LeagueDetail() {
               }] : [])
             ]}
           />
+          </QueryBoundary>
         </div>
       </PullToRefresh>
 

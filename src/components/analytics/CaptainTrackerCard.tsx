@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../context/AuthContext';
 import { fetchUserAnalytics, CaptainAnalytics } from '../../services/analyticsService';
 import { APP_CONFIG } from '../../config/appConfig';
@@ -10,40 +11,16 @@ interface CaptainTrackerCardProps {
 
 export default function CaptainTrackerCard({ leagueId }: CaptainTrackerCardProps) {
   const { user } = useAuth();
-  const [captainData, setCaptainData] = useState<CaptainAnalytics | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchCaptainData = async () => {
-      if (!user?.uid || !leagueId) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-        
-        const season = parseInt(APP_CONFIG.CURRENT_NFL_SEASON.toString());
-        const analyticsData = await fetchUserAnalytics(user.uid, leagueId, season);
-        
-        if (analyticsData) {
-          setCaptainData(analyticsData.captainAnalytics);
-        } else {
-          setCaptainData(null);
-        }
-        
-      } catch (err) {
-        console.error('Error fetching captain data:', err);
-        setError('Unable to load captain data');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchCaptainData();
-  }, [user?.uid, leagueId]);
+  const enabled = !!(user?.uid && leagueId);
+  const season = useMemo(() => parseInt(APP_CONFIG.CURRENT_NFL_SEASON.toString()), []);
+  const { data, isLoading: loading, isError } = useQuery({
+    queryKey: ['analytics', 'captain', user?.uid, leagueId, season],
+    queryFn: async () => fetchUserAnalytics(user!.uid, leagueId!, season),
+    enabled,
+    staleTime: 30_000,
+  });
+  const captainData: CaptainAnalytics | null = data ? data.captainAnalytics : null;
+  const error = useMemo(() => (isError ? 'Unable to load captain data' : null), [isError]);
 
   // Loading state
   if (loading) {

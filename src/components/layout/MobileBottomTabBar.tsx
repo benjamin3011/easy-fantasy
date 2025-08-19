@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
-import { GridIcon, BoltIcon, ListIcon, UserCircleIcon } from '../../icons';
+import { GridIcon, BoltIcon, ListIcon, UserCircleIcon, ShootingStarIcon } from '../../icons';
 import { useSidebar } from '../../context/SidebarContext';
 
 interface TabItem {
@@ -30,7 +30,7 @@ const tabItems: TabItem[] = [
   {
     name: 'Tips',
     path: '/tips',
-    icon: <BoltIcon />, // We'll change this icon later
+    icon: <ShootingStarIcon />, // Perfect for predictions/tips
   },
   {
     name: 'Profile',

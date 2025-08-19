@@ -200,6 +200,10 @@ export type SelectableEntity = SelectablePlayer | SelectableTeam;
 export interface StoredLineupPick {
   id: string; // Player or Team ID
   type: 'player' | 'team';
+  // Optimization: Store names to avoid additional fetches when viewing lineups
+  name?: string; // Player/Team name (optional for backward compatibility)
+  teamAbbreviation?: string; // Team abbreviation (optional for backward compatibility)
+  selectedAt?: any; // Firestore Timestamp when selected
 }
 
 // Represents the 'picks' object stored in Firestore

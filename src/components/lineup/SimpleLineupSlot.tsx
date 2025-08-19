@@ -2,6 +2,9 @@ import React from 'react';
 import { useLineupStore } from '../../store/lineupStore';
 import { PositionKey, SelectablePlayer, SelectableEntity, InjuryStatus } from '../../types/lineup';
 import { POSITIONS_CONFIG } from '../../config/positions';
+import { isEntityGameLocked, getGameLockMessage } from '../../utils/gameLockHelper';
+import { useLineupPoints } from '../../context/LineupPointsContext';
+import { getEntityDisplayPoints } from '../../utils/lineupPointsDisplay';
 
 interface SimpleLineupSlotProps {
   positionKey: PositionKey;
@@ -48,11 +51,21 @@ const SimpleLineupSlot: React.FC<SimpleLineupSlotProps> = ({
   onViewStats
 }) => {
   const { lineup, updateLineupSlot, openSelectionPanel } = useLineupStore();
+  const { hasGameStarted, actualPoints, captainSlotKey, captainMultiplier } = useLineupPoints();
   
   const positionConfig = POSITIONS_CONFIG.find(p => p.key === positionKey);
   const selectedEntity = lineup[positionKey];
   
+  // Check if this entity's game is locked
+  const isLocked = selectedEntity ? isEntityGameLocked(selectedEntity) : false;
+  const lockMessage = selectedEntity ? getGameLockMessage(selectedEntity) : '';
+  
   const handleSlotClick = () => {
+    // Prevent selection if entity is locked
+    if (isLocked) {
+      return;
+    }
+    
     if (onSlotClick) {
       onSlotClick(positionKey);
     } else if (positionConfig) {
@@ -63,6 +76,12 @@ const SimpleLineupSlot: React.FC<SimpleLineupSlotProps> = ({
 
   const handleClearSlot = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent slot click when clearing
+    
+    // Prevent clearing if entity is locked
+    if (isLocked) {
+      return;
+    }
+    
     updateLineupSlot(positionKey, undefined);
   };
 
@@ -78,9 +97,16 @@ const SimpleLineupSlot: React.FC<SimpleLineupSlotProps> = ({
 
   return (
     <div 
-      className="relative bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-lg p-4 min-h-[140px] cursor-pointer hover:border-brand-400 hover:shadow-md transition-all duration-200"
+      className={`relative bg-white dark:bg-gray-800 border-2 rounded-lg p-4 min-h-[140px] transition-all duration-200 ${
+        isLocked 
+          ? 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-750 cursor-not-allowed opacity-70' 
+          : 'border-gray-200 dark:border-gray-700 cursor-pointer hover:border-brand-400 hover:shadow-md'
+      }`}
       onClick={handleSlotClick}
+      title={isLocked ? lockMessage : undefined}
     >
+
+
       {/* Stats Button - Top Right (only when entity is selected) */}
       {selectedEntity && onViewStats && (
         <button 
@@ -103,9 +129,16 @@ const SimpleLineupSlot: React.FC<SimpleLineupSlotProps> = ({
       <div className="flex flex-col h-full">
         {/* Position Header */}
         <div className="mb-3">
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-            {positionConfig?.label || positionKey}
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+              {positionConfig?.label || positionKey}
+            </h3>
+            {isLocked && (
+              <svg className="w-4 h-4 text-gray-500 dark:text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM15.1 8H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/>
+              </svg>
+            )}
+          </div>
         </div>
 
         {/* Selected Entity Display */}
@@ -162,18 +195,45 @@ const SimpleLineupSlot: React.FC<SimpleLineupSlotProps> = ({
             {/* Stats and Actions */}
             <div className="flex items-center justify-between">
               <div className="text-center">
-                <div className="text-xs text-gray-500 dark:text-gray-400">PPG</div>
-                <div className="text-lg font-semibold text-green-600 dark:text-green-400">
-                  {selectedEntity.actualPPG.toFixed(1)}
-                </div>
+                {(() => {
+                  const displayPoints = getEntityDisplayPoints(
+                    selectedEntity, 
+                    hasGameStarted, 
+                    actualPoints[selectedEntity.id],
+                    positionKey,
+                    captainSlotKey,
+                    captainMultiplier
+                  );
+                  return (
+                    <>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {displayPoints.label}
+                      </div>
+                                            <div className={`text-lg font-semibold ${
+                        displayPoints.isCaptain
+                          ? 'text-yellow-600 dark:text-yellow-400'
+                          : displayPoints.type === 'actual'
+                          ? 'text-blue-600 dark:text-blue-400'
+                          : 'text-green-600 dark:text-green-400'
+                      }`}>
+                        {displayPoints.points.toFixed(1)}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
               
               {/* Clear Button */}
               <button
                 onClick={handleClearSlot}
-                className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                disabled={isLocked}
+                className={`text-xs px-2 py-1 rounded transition-colors ${
+                  isLocked 
+                    ? 'text-gray-400 cursor-not-allowed' 
+                    : 'text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20'
+                }`}
               >
-                Clear
+                {isLocked ? 'Locked' : 'Clear'}
               </button>
             </div>
           </div>

@@ -19,15 +19,15 @@ const Checkbox: React.FC<CheckboxProps> = ({
 }) => {
   return (
     <label
-      className={`flex items-center space-x-3 group cursor-pointer ${
+      className={`flex items-center space-x-3 group cursor-pointer min-h-[44px] py-2 ${
         disabled ? "cursor-not-allowed opacity-60" : ""
       }`}
     >
-      <div className="relative w-5 h-5">
+      <div className="relative w-6 h-6 flex-shrink-0">
         <input
           id={id}
           type="checkbox"
-          className={`w-5 h-5 appearance-none cursor-pointer dark:border-gray-700 border border-gray-300 checked:border-transparent rounded-md checked:bg-brand-500 disabled:opacity-60 
+          className={`w-6 h-6 appearance-none cursor-pointer dark:border-gray-700 border border-gray-300 checked:border-transparent rounded-md checked:bg-brand-500 disabled:opacity-60 touch-manipulation transition-all duration-150 focus:ring-2 focus:ring-brand-500/20
           ${className}`}
           checked={checked}
           onChange={(e) => onChange(e.target.checked)}

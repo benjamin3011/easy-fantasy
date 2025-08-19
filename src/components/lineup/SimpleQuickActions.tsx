@@ -7,6 +7,7 @@ import {
   fetchSelectableTeams, 
   fetchStoredWeeklyLineup
 } from '../../services/lineupFetchingService';
+import { isEntityGameLocked } from '../../utils/gameLockHelper';
 
 interface SimpleQuickActionsProps {
   currentWeek: number;
@@ -117,10 +118,28 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
       const randomizedLineup: Partial<Record<PositionKey, SelectableEntity | undefined>> = {};
       const selectedTeamIds = new Set<string>(); // Track selected team IDs to prevent duplicates
       
-      // Randomize each position
+      // First, preserve all locked entities and track their team IDs
+      POSITIONS_CONFIG.forEach(positionDetail => {
+        const currentEntity = lineup[positionDetail.key];
+        if (currentEntity && isEntityGameLocked(currentEntity)) {
+          randomizedLineup[positionDetail.key] = currentEntity;
+          if (currentEntity.entityType === 'team') {
+            selectedTeamIds.add(currentEntity.id);
+          }
+        }
+      });
+      
+      // Randomize each unlocked position
       for (const positionDetail of POSITIONS_CONFIG) {
         try {
           const positionKey = positionDetail.key as PositionKey;
+          
+          // Skip if this position is already locked
+          const currentEntity = lineup[positionKey];
+          if (currentEntity && isEntityGameLocked(currentEntity)) {
+            continue;
+          }
+          
           let availableEntities: SelectableEntity[] = [];
           
           if (positionDetail.type === 'player') {
@@ -180,8 +199,21 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
         }
       }
       
+      // Count locked vs randomized positions
+      const lockedCount = POSITIONS_CONFIG.filter(pos => {
+        const entity = lineup[pos.key];
+        return entity && isEntityGameLocked(entity);
+      }).length;
+      
+      const randomizedCount = POSITIONS_CONFIG.length - lockedCount;
+      
       setLineup(randomizedLineup);
-      setSaveStatus('idle', null, "Lineup randomized successfully!");
+      
+      if (lockedCount > 0) {
+        setSaveStatus('idle', null, `Randomized ${randomizedCount} positions. ${lockedCount} locked positions kept.`);
+      } else {
+        setSaveStatus('idle', null, "Lineup randomized successfully!");
+      }
       
     } catch (error) {
       console.error("Error randomizing lineup:", error);
@@ -204,10 +236,28 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
       const optimizedLineup: Partial<Record<PositionKey, SelectableEntity | undefined>> = {};
       const selectedTeamIds = new Set<string>(); // Track selected team IDs to prevent duplicates
       
-      // Optimize each position by selecting highest PPG available
+      // First, preserve all locked entities and track their team IDs
+      POSITIONS_CONFIG.forEach(positionDetail => {
+        const currentEntity = lineup[positionDetail.key];
+        if (currentEntity && isEntityGameLocked(currentEntity)) {
+          optimizedLineup[positionDetail.key] = currentEntity;
+          if (currentEntity.entityType === 'team') {
+            selectedTeamIds.add(currentEntity.id);
+          }
+        }
+      });
+      
+      // Optimize each unlocked position by selecting highest PPG available
       for (const positionDetail of POSITIONS_CONFIG) {
         try {
           const positionKey = positionDetail.key as PositionKey;
+          
+          // Skip if this position is already locked
+          const currentEntity = lineup[positionKey];
+          if (currentEntity && isEntityGameLocked(currentEntity)) {
+            continue;
+          }
+          
           let availableEntities: SelectableEntity[] = [];
           
           if (positionDetail.type === 'player') {
@@ -289,8 +339,21 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
         }
       }
       
+      // Count locked vs optimized positions
+      const lockedCount = POSITIONS_CONFIG.filter(pos => {
+        const entity = lineup[pos.key];
+        return entity && isEntityGameLocked(entity);
+      }).length;
+      
+      const optimizedCount = POSITIONS_CONFIG.length - lockedCount;
+      
       setLineup(optimizedLineup);
-      setSaveStatus('idle', null, "Lineup optimized for highest projected points!");
+      
+      if (lockedCount > 0) {
+        setSaveStatus('idle', null, `Optimized ${optimizedCount} positions. ${lockedCount} locked positions kept.`);
+      } else {
+        setSaveStatus('idle', null, "Lineup optimized for highest projected points!");
+      }
       
     } catch (error) {
       console.error("Error optimizing lineup:", error);
@@ -321,6 +384,14 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
       // Reconstruct lineup with current week's data
       const reconstructedLineup: Partial<Record<PositionKey, SelectableEntity | undefined>> = {};
       
+      // First, preserve all locked entities
+      POSITIONS_CONFIG.forEach(positionDetail => {
+        const currentEntity = lineup[positionDetail.key];
+        if (currentEntity && isEntityGameLocked(currentEntity)) {
+          reconstructedLineup[positionDetail.key] = currentEntity;
+        }
+      });
+      
       for (const [posKey, pick] of Object.entries(lastWeekData.picks)) {
         if (pick) {
           try {
@@ -335,7 +406,11 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
             }
             
             if (entity) {
-              reconstructedLineup[posKey as PositionKey] = entity;
+              // Only copy if the current position is not locked
+              const currentEntity = lineup[posKey as PositionKey];
+              if (!currentEntity || !isEntityGameLocked(currentEntity)) {
+                reconstructedLineup[posKey as PositionKey] = entity;
+              }
             }
           } catch (error) {
             console.warn(`Failed to load entity ${pick.id} for position ${posKey}:`, error);
@@ -343,8 +418,21 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
         }
       }
 
+      // Count locked vs copied positions
+      const lockedCount = POSITIONS_CONFIG.filter(pos => {
+        const entity = lineup[pos.key];
+        return entity && isEntityGameLocked(entity);
+      }).length;
+      
+      const copiedCount = Object.keys(lastWeekData.picks).length - lockedCount;
+      
       setLineup(reconstructedLineup);
-      setSaveStatus('idle', null, "Successfully copied lineup from last week!");
+      
+      if (lockedCount > 0) {
+        setSaveStatus('idle', null, `Copied ${copiedCount} positions from last week. ${lockedCount} locked positions kept.`);
+      } else {
+        setSaveStatus('idle', null, "Successfully copied lineup from last week!");
+      }
       
     } catch (error) {
       console.error("Error copying from last week:", error);
@@ -355,8 +443,31 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
   };
 
   const handleClearAllSlots = () => {
-    setLineup({});
-    setSaveStatus('idle', null, "All lineup slots cleared.");
+    // Only clear unlocked slots
+    const newLineup: Partial<Record<PositionKey, SelectableEntity | undefined>> = {};
+    let clearedCount = 0;
+    let lockedCount = 0;
+    
+    POSITIONS_CONFIG.forEach(position => {
+      const entity = lineup[position.key];
+      if (entity && isEntityGameLocked(entity)) {
+        // Keep locked entities
+        newLineup[position.key] = entity;
+        lockedCount++;
+      } else {
+        // Clear unlocked entities
+        newLineup[position.key] = undefined;
+        if (entity) clearedCount++;
+      }
+    });
+    
+    setLineup(newLineup as Record<PositionKey, SelectableEntity | undefined>);
+    
+    if (lockedCount > 0) {
+      setSaveStatus('idle', null, `Cleared ${clearedCount} slots. ${lockedCount} locked slots kept.`);
+    } else {
+      setSaveStatus('idle', null, "All lineup slots cleared.");
+    }
   };
 
   return (

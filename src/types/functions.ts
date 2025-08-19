@@ -49,6 +49,14 @@ export interface CalculateScoresPayload {
   leagueId?: string;
 }
 
+// Payload for healthCheckStandings
+export interface HealthCheckStandingsPayload {
+  week?: number;
+  season?: number;
+  leagueId?: string;
+  dryRun?: boolean;
+}
+
 // --- Types for League Functions (to be moved/consolidated from leagues.ts) ---
 export interface CreateLeaguePayload {
   name: string;
@@ -131,4 +139,39 @@ export interface UpdateLeagueAutoSettingsPayload {
   autoTips?: {
     enabled: boolean;
   };
+}
+
+// Payload for calculateTipsResults
+export interface CalculateTipsResultsPayload {
+  week?: number;
+  season?: number;
+  leagueId?: string;
+}
+
+// Payload for repairProphetTotals
+export interface RepairProphetTotalsPayload {
+  leagueId: string;
+  season: number;
+}
+
+// Result for repairProphetTotals
+export interface RepairProphetTotalsResult {
+  success: boolean;
+  message: string;
+  repairedCount: number;
+}
+
+// Payload for repairSeasonFantasyPoints
+export interface RepairSeasonFantasyPointsPayload {
+  season?: number;
+  playersOnly?: boolean;
+  teamsOnly?: boolean;
+}
+
+// Result for repairSeasonFantasyPoints
+export interface RepairSeasonFantasyPointsResult {
+  success: boolean;
+  message: string;
+  playersRepaired: number;
+  teamsRepaired: number;
 } 

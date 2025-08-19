@@ -4,6 +4,9 @@ import { SelectablePlayer, SelectableTeam, SelectableEntity, PositionKey, Injury
 import { POSITIONS_CONFIG } from '../../config/positions';
 import { MAX_USAGE_COUNT } from '../../config/appConfig';
 import { calculateCurrentNFLWeek } from '../../utils/nflWeekHelper';
+import { isEntityGameLocked, getGameLockMessage } from '../../utils/gameLockHelper';
+import { useLineupPoints } from '../../context/LineupPointsContext';
+import { getEntityDisplayPoints } from '../../utils/lineupPointsDisplay';
 
 // Helper function to get injury border color (from old EntityDisplayCard.tsx)
 const getInjuryBorderColor = (status?: InjuryStatus['status']): string => {
@@ -53,6 +56,7 @@ const SimpleEntitySelectionPanel: React.FC = () => {
     fetchSelectableTeams
   } = useLineupStore();
 
+  const { hasGameStarted, actualPoints, captainSlotKey, captainMultiplier } = useLineupPoints();
   const [searchTerm, setSearchTerm] = useState('');
   
   const TEAM_POSITION_KEYS: PositionKey[] = ['PassingOffense', 'RushingOffense', 'Defense', 'SpecialTeams'];
@@ -85,6 +89,11 @@ const SimpleEntitySelectionPanel: React.FC = () => {
   );
 
   const handleSelectEntity = (entity: SelectableEntity) => {
+    // Prevent selection if entity's game is locked
+    if (isEntityGameLocked(entity)) {
+      return;
+    }
+    
     updateLineupSlot(selectedPosition.key as PositionKey, entity);
     closeSelectionPanel();
   };
@@ -216,9 +225,11 @@ const SimpleEntitySelectionPanel: React.FC = () => {
 
                       // Determine if entity can be selected
                       const isOnByeThisWeek = entity.byeWeek === currentWeek;
+                      const isGameLocked = isEntityGameLocked(entity);
                       const canSelect = !isTeamSelectedInOtherSlot && 
                                       (entity.usageCount < MAX_USAGE_COUNT || isCurrentlySelected) &&
-                                      !isOnByeThisWeek; // Can't select if on bye week
+                                      !isOnByeThisWeek && // Can't select if on bye week
+                                      !isGameLocked; // Can't select if game is locked
 
                       return (
                         <div
@@ -226,11 +237,14 @@ const SimpleEntitySelectionPanel: React.FC = () => {
                           className={`relative p-4 border rounded-lg transition-colors ${
                             isCurrentlySelected
                               ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                              : isGameLocked
+                              ? 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 opacity-65'
                               : canSelect
                               ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
                               : 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 opacity-60'
                           }`}
                           onClick={canSelect ? () => handleSelectEntity(entity) : undefined}
+                          title={isGameLocked ? getGameLockMessage(entity) : undefined}
                         >
                           <div className="flex items-center space-x-3">
                             {/* Avatar with injury border */}
@@ -303,21 +317,58 @@ const SimpleEntitySelectionPanel: React.FC = () => {
                               </div>
                             </div>
 
-                            {/* Right side: PPG only */}
+                            {/* Right side: Points display */}
                             <div className="flex items-center space-x-3">
-                              {/* PPG (always in same position for alignment) */}
+                              {/* Points (PPG or actual) */}
                               <div className="text-right min-w-[60px]">
-                                <div className="text-xs text-gray-500 dark:text-gray-400">PPG</div>
-                                <div className="font-semibold text-lg text-gray-800 dark:text-gray-100">
-                                  {entity.actualPPG.toFixed(1)}
-                                </div>
+                                {(() => {
+                                  const displayPoints = getEntityDisplayPoints(
+                                    entity, 
+                                    hasGameStarted, 
+                                    actualPoints[entity.id],
+                                    selectedPosition.key,
+                                    captainSlotKey,
+                                    captainMultiplier
+                                  );
+                                  return (
+                                    <>
+                                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                                        {displayPoints.label}
+                                      </div>
+                                      <div className={`font-semibold text-lg ${
+                                        displayPoints.type === 'actual' 
+                                          ? 'text-blue-600 dark:text-blue-400' 
+                                          : 'text-gray-800 dark:text-gray-100'
+                                      }`}>
+                                        {displayPoints.points.toFixed(1)}
+                                      </div>
+                                    </>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </div>
 
+                          {/* Lock Icon - Absolute positioned */}
+                          {isGameLocked && (
+                            <div className="absolute top-2 right-2">
+                              <svg className="w-4 h-4 text-gray-500 dark:text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM15.1 8H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/>
+                              </svg>
+                            </div>
+                          )}
+
                           {/* Status messages */}
                           {!canSelect && (
                             <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                              {isGameLocked && (
+                                <p className="text-xs text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM15.1 8H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/>
+                                  </svg>
+                                  Game has started - cannot select
+                                </p>
+                              )}
                               {isOnByeThisWeek && (
                                 <p className="text-xs text-orange-600 dark:text-orange-400">
                                   On bye week - cannot select

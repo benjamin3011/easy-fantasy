@@ -24,9 +24,10 @@ const Input: FC<InputProps> = ({
 }) => {
   // ---------- styling -------------------------------------------------------
   let inputClasses =
-    "h-11 w-full rounded-lg border appearance-none px-4 py-2.5 text-base sm:text-sm " +
+    "min-h-[44px] w-full rounded-lg border appearance-none px-4 py-2.5 text-base " +
     "shadow-theme-xs placeholder:text-gray-400 focus:outline-hidden focus:ring-3 " +
     "dark:bg-gray-900 dark:text-white/90 dark:placeholder:text-white/30 " +
+    "touch-manipulation transition-all duration-150 " +
     className;
 
   if (disabled) {

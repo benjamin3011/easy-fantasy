@@ -2,6 +2,9 @@ import React, { useRef, useCallback, useMemo } from 'react';
 import { useLineupStore } from '../../store/lineupStore';
 import { PositionKey, SelectablePlayer, SelectableEntity } from '../../types/lineup';
 import { POSITIONS_CONFIG } from '../../config/positions';
+import { getCaptainLockStatus } from '../../utils/gameLockHelper';
+import { useLineupPoints } from '../../context/LineupPointsContext';
+import { getEntityDisplayPoints } from '../../utils/lineupPointsDisplay';
 
 interface SimpleCaptainSelectorProps {
   captainPointMultiplier: number;
@@ -14,6 +17,7 @@ const SimpleCaptainSelector: React.FC<SimpleCaptainSelectorProps> = React.memo((
     setCaptain 
   } = useLineupStore();
   
+  const { hasGameStarted, actualPoints, captainSlotKey } = useLineupPoints();
   const lastClickRef = useRef<number>(0);
 
   // Get all filled lineup slots, but only show players for captain selection
@@ -30,7 +34,15 @@ const SimpleCaptainSelector: React.FC<SimpleCaptainSelectorProps> = React.memo((
     [filledSlots, lineup]
   );
 
+  // Check if captain selection is locked
+  const captainLockStatus = useMemo(() => getCaptainLockStatus(lineup, designatedCaptainSlotKey), [lineup, designatedCaptainSlotKey]);
+
   const handleCaptainSelect = useCallback((positionKey: PositionKey, entity: SelectableEntity) => {
+    // Prevent selection if captain is locked
+    if (captainLockStatus.isLocked) {
+      return;
+    }
+    
     // Debounce rapid clicks to prevent race conditions
     const now = Date.now();
     if (now - lastClickRef.current < 300) {
@@ -47,9 +59,14 @@ const SimpleCaptainSelector: React.FC<SimpleCaptainSelectorProps> = React.memo((
         setCaptain(positionKey, entity.id);
       }
     }
-  }, [designatedCaptainSlotKey, setCaptain]);
+  }, [designatedCaptainSlotKey, setCaptain, captainLockStatus.isLocked]);
 
   const handleClearCaptain = useCallback(() => {
+    // Prevent clearing if captain is locked
+    if (captainLockStatus.isLocked) {
+      return;
+    }
+    
     // Debounce rapid clicks
     const now = Date.now();
     if (now - lastClickRef.current < 300) {
@@ -58,7 +75,7 @@ const SimpleCaptainSelector: React.FC<SimpleCaptainSelectorProps> = React.memo((
     lastClickRef.current = now;
     
     setCaptain(null, null);
-  }, [setCaptain]);
+  }, [setCaptain, captainLockStatus.isLocked]);
 
   if (filledSlots.length === 0) {
     return (
@@ -115,9 +132,14 @@ const SimpleCaptainSelector: React.FC<SimpleCaptainSelectorProps> = React.memo((
         {designatedCaptainSlotKey && (
           <button
             onClick={handleClearCaptain}
-            className="text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+            disabled={captainLockStatus.isLocked}
+            className={`text-sm ${
+              captainLockStatus.isLocked
+                ? 'text-gray-400 cursor-not-allowed'
+                : 'text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300'
+            }`}
           >
-            Clear Captain
+            {captainLockStatus.isLocked ? 'Locked' : 'Clear Captain'}
           </button>
         )}
       </div>
@@ -133,15 +155,19 @@ const SimpleCaptainSelector: React.FC<SimpleCaptainSelectorProps> = React.memo((
             <div
               key={position.key}
               className={`
-                p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 
-                hover:shadow-md active:scale-[0.98] flex items-center justify-between
-                min-h-[80px]
+                p-4 rounded-lg border-2 transition-all duration-200 
+                flex items-center justify-between min-h-[80px]
+                ${captainLockStatus.isLocked 
+                  ? 'cursor-not-allowed opacity-60' 
+                  : 'cursor-pointer hover:shadow-md active:scale-[0.98]'
+                }
                 ${isCaptain 
                   ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-400' 
                   : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600'
                 }
               `}
               onClick={() => handleCaptainSelect(position.key, entity)}
+              title={captainLockStatus.isLocked ? captainLockStatus.message : undefined}
             >
               <div className="flex items-center gap-4">
                 {/* Captain Crown Icon */}
@@ -172,20 +198,68 @@ const SimpleCaptainSelector: React.FC<SimpleCaptainSelectorProps> = React.memo((
 
               {/* Stats - Fixed Height */}
               <div className="text-right flex-shrink-0 h-12 flex flex-col justify-center">
-                <div className="font-medium text-green-600 dark:text-green-400">
-                  {entity.actualPPG.toFixed(1)} PPG
-                </div>
-                <div className="text-xs text-yellow-600 dark:text-yellow-400 h-4 flex items-center justify-end">
-                  {isCaptain && `+${(entity.actualPPG * (captainPointMultiplier - 1)).toFixed(1)} bonus`}
-                </div>
+                {(() => {
+                  const displayPoints = getEntityDisplayPoints(
+                    entity,
+                    hasGameStarted,
+                    actualPoints[entity.id],
+                    position.key,
+                    captainSlotKey,
+                    captainPointMultiplier
+                  );
+                  
+                  const baseLabel = displayPoints.type === 'actual' ? 'PTS' : 'PPG';
+                  
+                  return (
+                    <>
+                      <div className={`font-medium ${
+                        displayPoints.type === 'actual' 
+                          ? displayPoints.isCaptain 
+                            ? 'text-yellow-600 dark:text-yellow-400' 
+                            : 'text-blue-600 dark:text-blue-400'
+                          : 'text-green-600 dark:text-green-400'
+                      }`}>
+                        {displayPoints.points.toFixed(1)} {baseLabel}
+                      </div>
+                      <div className="text-xs text-yellow-600 dark:text-yellow-400 h-4 flex items-center justify-end">
+                        {displayPoints.isCaptain && (
+                          <span className="flex items-center gap-1">
+                            <span>⭐</span>
+                            <span>{captainPointMultiplier}x</span>
+                          </span>
+                        )}
+                        {displayPoints.isCaptain && displayPoints.type === 'ppg' && (
+                          <span className="ml-2">
+                            +{(entity.actualPPG * (captainPointMultiplier - 1)).toFixed(1)} bonus
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           );
         })}
       </div>
 
+      {/* Captain Locked Warning */}
+      {captainLockStatus.isLocked && (
+        <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="flex items-start gap-2">
+            <svg className="w-4 h-4 text-gray-500 dark:text-gray-400 mt-0.5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 17c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM15.1 8H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/>
+            </svg>
+            <div className="text-sm text-gray-700 dark:text-gray-300">
+              <p className="font-medium">Captain Selection Locked</p>
+              <p>{captainLockStatus.message}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Captain Info */}
-      {designatedCaptainSlotKey && (
+      {designatedCaptainSlotKey && !captainLockStatus.isLocked && (
         <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
           <div className="flex items-start gap-2">
             <svg className="w-4 h-4 text-yellow-600 dark:text-yellow-400 mt-0.5" fill="currentColor" viewBox="0 0 24 24">

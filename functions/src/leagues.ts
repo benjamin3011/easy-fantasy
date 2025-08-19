@@ -275,7 +275,7 @@ export const updateLeagueAutoSettings = onCall({ ...leagueOptions }, async (requ
     }
 
     // Prepare update object
-    const updateData: any = {};
+    const updateData: Partial<{ autoLineup: typeof autoLineup; autoTips: typeof autoTips }> = {};
     if (autoLineup !== undefined) {
       updateData.autoLineup = autoLineup;
     }

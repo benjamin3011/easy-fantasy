@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { League } from '../../../utils/leagues';
-import LeagueStandingsTable from '../LeagueStandingsTable';
+import ModernLeaderboard from '../ModernLeaderboard';
 import LeagueQuickActions from '../LeagueQuickActions';
 
 interface StandingsTabProps {
@@ -17,11 +17,11 @@ export default function StandingsTab({ league }: StandingsTabProps) {
 
       {/* League Standings */}
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 md:p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3 md:mb-4">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 md:mb-6">
           League Standings
         </h3>
         <Suspense fallback={<div className="h-64 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />}>
-          <LeagueStandingsTable members={league.members} />
+          <ModernLeaderboard members={league.members} leagueId={league.id} />
         </Suspense>
       </div>
 

@@ -3,8 +3,9 @@ import { logger } from "firebase-functions/v2";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 import { autoAssistantOptions } from './config'; // Use auto-assistant specific options
-import { calculateCurrentNFLWeek, getCurrentSeason } from './common';
-import { FirestoreWeeklySchedule, GameInfoForWeek } from './types';
+import { calculateCurrentNFLWeek } from './common';
+import { config } from './config';
+import { FirestoreWeeklySchedule, GameInfoForWeek, Player, Team } from './types';
 
 // Get db instance (initialized in index.ts)
 const db = admin.firestore();
@@ -14,7 +15,7 @@ const db = admin.firestore();
 /**
  * Helper function to get effective PPG with fallbacks (mirrors frontend logic)
  */
-function getEffectivePPG(entity: any): number {
+function getEffectivePPG(entity: Player | Team): number {
   // Primary: Use actual PPG if available
   if (entity.actualPPG > 0) {
     return entity.actualPPG;
@@ -26,8 +27,8 @@ function getEffectivePPG(entity: any): number {
     const gamesPlayedString = entity.rawSeasonStats.gamesPlayed;
     
     if (seasonFPString && gamesPlayedString) {
-      const seasonFP = typeof seasonFPString === 'string' ? parseFloat(seasonFPString) : seasonFPString;
-      const gamesPlayed = typeof gamesPlayedString === 'string' ? parseInt(gamesPlayedString) : gamesPlayedString;
+      const seasonFP = typeof seasonFPString === 'string' ? parseFloat(seasonFPString) : Number(seasonFPString);
+      const gamesPlayed = typeof gamesPlayedString === 'string' ? parseInt(gamesPlayedString) : Number(gamesPlayedString);
       
       if (seasonFP > 0 && gamesPlayed > 0) {
         return seasonFP / gamesPlayed;
@@ -282,12 +283,12 @@ async function generatePicksForPositions(
   
   for (const position of positions) {
     try {
-      let availableEntities: any[] = [];
+      let availableEntities: (Player | Team)[] = [];
       
       if (position.type === 'player') {
-        availableEntities = await fetchAvailablePlayers(position.key, usageCounts, scheduleData, week);
+        availableEntities = await fetchAvailablePlayers(position.key);
       } else {
-        availableEntities = await fetchAvailableTeams(position.key, usageCounts, scheduleData, week, selectedTeamIds);
+        availableEntities = await fetchAvailableTeams(position.key, selectedTeamIds);
       }
       
       // Filter out entities with max usage (5) and those with bye weeks
@@ -338,7 +339,7 @@ async function generatePicksForPositions(
 /**
  * Fetch available players for a position (simplified version)
  */
-async function fetchAvailablePlayers(position: string, usageCounts: Record<string, number>, scheduleData: FirestoreWeeklySchedule, week: number): Promise<any[]> {
+async function fetchAvailablePlayers(position: string): Promise<Player[]> {
   try {
     // This is a simplified version - in reality, you'd fetch from the players collection
     // with the same logic as the frontend fetchSelectablePlayers function
@@ -348,16 +349,20 @@ async function fetchAvailablePlayers(position: string, usageCounts: Record<strin
       .where('isActive', '==', true)
       .get();
     
-    return playersSnapshot.docs.map(doc => ({
-      id: doc.id,
-      entityType: 'player',
-      position: position,
-      name: doc.data().longName || doc.data().firstName + ' ' + doc.data().lastName,
-      actualPPG: doc.data().actualPPG || 0,
-      rawSeasonStats: doc.data().rawSeasonStats,
-      byeWeek: doc.data().byeWeek,
-      team: doc.data().team
-    }));
+    return playersSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+            id: doc.id,
+            entityType: 'player',
+            position: position,
+            name: data.longName || `${data.firstName} ${data.lastName}`,
+            actualPPG: data.actualPPG || 0,
+            rawSeasonStats: data.rawSeasonStats,
+            byeWeek: data.byeWeek,
+            team: data.team,
+            projectedPPG: 0,
+        } as Player;
+    });
     
   } catch (error) {
     logger.error(`Error fetching players for position ${position}:`, error);
@@ -368,7 +373,7 @@ async function fetchAvailablePlayers(position: string, usageCounts: Record<strin
 /**
  * Fetch available teams for a position (simplified version)
  */
-async function fetchAvailableTeams(position: string, usageCounts: Record<string, number>, scheduleData: FirestoreWeeklySchedule, week: number, selectedTeamIds: Set<string>): Promise<any[]> {
+async function fetchAvailableTeams(position: string, selectedTeamIds: Set<string>): Promise<Team[]> {
   try {
     // This is a simplified version - in reality, you'd fetch from the teams collection
     // with the same logic as the frontend fetchSelectableTeams function
@@ -379,18 +384,23 @@ async function fetchAvailableTeams(position: string, usageCounts: Record<string,
     
     return teamsSnapshot.docs
       .filter(doc => !selectedTeamIds.has(doc.id)) // Prevent duplicates
-      .map(doc => ({
-        id: doc.id,
-        entityType: 'team',
-        name: doc.data().teamName || doc.data().teamCity + ' ' + doc.data().teamName,
-        actualPPG: doc.data()[`actualPPG_${position}`] || 0,
-        seasonRecord: doc.data().seasonRecord,
-        seasonFP_Defense: doc.data().seasonFP_Defense,
-        seasonFP_Passing: doc.data().seasonFP_Passing,
-        seasonFP_Rushing: doc.data().seasonFP_Rushing,
-        seasonFP_ST: doc.data().seasonFP_ST,
-        byeWeek: doc.data().byeWeek
-      }));
+      .map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            entityType: 'team',
+            name: data.teamName || `${data.teamCity} ${data.teamName}`,
+            actualPPG: data[`actualPPG_${position}`] || 0,
+            seasonRecord: data.seasonRecord,
+            seasonFP_Defense: data.seasonFP_Defense,
+            seasonFP_Passing: data.seasonFP_Passing,
+            seasonFP_Rushing: data.seasonFP_Rushing,
+            seasonFP_ST: data.seasonFP_ST,
+            byeWeek: data.byeWeek,
+            position: position,
+            projectedPPG: 0,
+        } as Team;
+    });
     
   } catch (error) {
     logger.error(`Error fetching teams for position ${position}:`, error);
@@ -408,7 +418,7 @@ async function saveAutoLineup(
   newPicks: Record<string, { id: string; type: 'player' | 'team' }>
 ): Promise<boolean> {
   try {
-    const currentSeason = getCurrentSeason();
+    const currentSeason = parseInt(config.CURRENT_NFL_SEASON, 10);
     const lineupDocId = `${leagueId}_${currentSeason}_${week}`;
     const lineupDocRef = db.collection('users').doc(userId).collection('weeklyLineups').doc(lineupDocId);
     
@@ -522,6 +532,14 @@ async function sendAutoLineupNotification(userId: string, leagueId: string, posi
   }
 }
 
+interface TippableGame {
+    gameId: string;
+    homeWinProbability: number;
+    awayWinProbability: number;
+    homeTeam: string;
+    awayTeam: string;
+}
+
 /**
  * Apply auto-tips for specific games using betting favorites
  */
@@ -546,7 +564,7 @@ async function applyAutoTipsForGames(
     }
     
     const tipsData = tipsDoc.data();
-    const tippableGames = tipsData?.tippableGames || [];
+    const tippableGames = (tipsData?.tippableGames || []) as TippableGame[];
     
     if (tippableGames.length === 0) {
       logger.warn(`No tippable games found for league ${leagueId}, week ${week}`);
@@ -563,7 +581,7 @@ async function applyAutoTipsForGames(
     for (const game of games) {
       try {
         // Find the tippable game that matches this game
-        const tippableGame = tippableGames.find((tg: any) => tg.gameId === game.gameID);
+        const tippableGame = tippableGames.find((tg) => tg.gameId === game.gameID);
         
         if (!tippableGame) {
           logger.warn(`No tippable game found for game ${game.gameID}`);
@@ -707,7 +725,7 @@ export const checkAutoLineups = onSchedule(
       logger.info('Starting auto-lineup check...');
       
       const currentWeek = calculateCurrentNFLWeek();
-      const currentSeason = getCurrentSeason();
+      const currentSeason = parseInt(config.CURRENT_NFL_SEASON, 10);
       const now = Math.floor(Date.now() / 1000); // Current epoch seconds
       
       // Get this week's schedule from Firestore
@@ -808,7 +826,7 @@ export const checkAutoTips = onSchedule(
       logger.info('Starting auto-tips check...');
       
       const currentWeek = calculateCurrentNFLWeek();
-      const currentSeason = getCurrentSeason();
+      const currentSeason = parseInt(config.CURRENT_NFL_SEASON, 10);
       const now = Math.floor(Date.now() / 1000);
       
       // Get this week's schedule

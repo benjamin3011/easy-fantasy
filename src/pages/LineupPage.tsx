@@ -12,6 +12,7 @@ import { Link } from 'react-router';
 
 // Import our new Zustand-powered components
 import { Suspense, lazy } from 'react';
+import QueryBoundary from '../components/common/QueryBoundary';
 import PullToRefresh from '../components/ui/PullToRefresh';
 import CachedDataIndicator from '../components/common/CachedDataIndicator';
 import InlineLeagueSelector from '../components/common/InlineLeagueSelector';
@@ -235,7 +236,7 @@ export default function LineupPage() {
       />
       
       <PullToRefresh onRefresh={async () => window.location.reload()}> 
-      <div className="container mx-auto px-4 py-6 pb-content-safe">
+      <div className="container mx-auto px-2 py-6 pb-content-safe">
         {/* Header with Controls */}
         <div className="mb-4">
           {/* Desktop: Show page title */}
@@ -265,12 +266,14 @@ export default function LineupPage() {
         </div>
 
         {/* Main Lineup Interface */}
-        <Suspense fallback={<SkeletonPage type="dashboard" />}> 
-          <SimpleLineupGrid 
+        <QueryBoundary>
+          <Suspense fallback={<SkeletonPage type="dashboard" />}> 
+            <SimpleLineupGrid 
             enableCaptainFeature={selectedLeague?.enableCaptainFeature ?? false}
             captainPointMultiplier={selectedLeague?.captainPointMultiplier ?? 1.5}
           />
-        </Suspense>
+          </Suspense>
+        </QueryBoundary>
       </div>
       </PullToRefresh>
     </>

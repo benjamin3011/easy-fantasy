@@ -1,5 +1,5 @@
 import PageMeta from '../components/common/PageMeta';
-import NotificationSettings from '../components/common/NotificationSettings';
+import NotificationPreferencesComponent from '../components/notifications/NotificationPreferences';
 
 export default function UserProfilePage() {
   return (
@@ -9,7 +9,7 @@ export default function UserProfilePage() {
         description="Manage your profile, notification preferences and account settings" 
       />
       
-      <div className="container mx-auto px-4 py-6 pb-content-safe">
+      <div className="container mx-auto px-2 py-6 pb-content-safe">
         {/* Header Section - Consistent with other pages */}
         <div className="mb-6">
           {/* Desktop: Show page title */}
@@ -26,7 +26,7 @@ export default function UserProfilePage() {
         </div>
         
         <div className="space-y-8">
-          <NotificationSettings />
+          <NotificationPreferencesComponent />
           
           {/* Future profile sections can be added here */}
           {/* <AccountInformation /> */}

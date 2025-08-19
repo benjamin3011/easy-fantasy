@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import toast from 'react-hot-toast';
+import QueryGlobalLoader from './QueryGlobalLoader';
 
 interface NetworkStatusContextType {
   isOnline: boolean;
@@ -104,6 +105,7 @@ export default function NetworkStatusProvider({ children }: NetworkStatusProvide
   return (
     <NetworkStatusContext.Provider value={{ isOnline, isSlowConnection }}>
       {children}
+      <QueryGlobalLoader />
       
       {/* Persistent offline indicator */}
       {!isOnline && (

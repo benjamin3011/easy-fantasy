@@ -1,7 +1,9 @@
 import * as admin from 'firebase-admin';
+import type { PushSubscription } from 'web-push';
+import webpush from 'web-push';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { config, REGION } from './config';
+import { config, REGION, secrets } from './config';
 import { calculateCurrentNFLWeek } from './common';
 import type { NotificationPreferences, FirestoreUser } from './types';
 
@@ -54,6 +56,37 @@ function generateFriendlyNotificationMessage(
   const title = titles[Math.floor(Math.random() * titles.length)];
   
   return { title, body };
+}
+
+// Persist a notification document for in-app history/UX
+async function persistUserNotification(
+  userId: string,
+  type: string,
+  title: string,
+  body: string,
+  data?: Record<string, unknown>,
+  channel: 'fcm' | 'webpush' | 'inapp' = 'inapp',
+  source: string = 'functions'
+) {
+  try {
+    await admin
+      .firestore()
+      .collection('users')
+      .doc(userId)
+      .collection('notifications')
+      .add({
+        type,
+        title,
+        body,
+        data: data ?? {},
+        channel,
+        source,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        readAt: null,
+      });
+  } catch (e) {
+    console.warn('Failed to persist user notification', userId, type, e);
+  }
 }
 
 interface LineupDeadlineAlert {
@@ -238,8 +271,34 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
             }
           };
           
-          await messaging.send(message);
-          console.log(`Sent lineup deadline alert to user ${alert.userId} for league ${alert.leagueName}`);
+          try {
+            await messaging.send(message);
+            console.log(`Sent lineup deadline alert (FCM) to user ${alert.userId} for league ${alert.leagueName}`);
+          } catch (fcmError: unknown) {
+            const msg = (fcmError as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
+            if (msg === 'messaging/registration-token-not-registered') {
+              // Clean up invalid token
+              await admin.firestore().collection('users').doc(alert.userId).set({ fcmToken: admin.firestore.FieldValue.delete() }, { merge: true });
+              console.warn(`Removed invalid FCM token for user ${alert.userId}`);
+            } else {
+              console.warn(`FCM send failed for user ${alert.userId}:`, fcmError);
+            }
+          }
+          
+          // Also attempt Web Push for Safari/iOS PWA users
+          await sendWebPushToUser(alert.userId, {
+            title,
+            body,
+            data: { type: 'lineup_deadline', leagueId: alert.leagueId, week: currentWeek, season: currentSeason },
+          });
+          // Persist notification for in-app center
+          await persistUserNotification(
+            alert.userId,
+            'lineup_deadline',
+            title,
+            body,
+            { leagueId: alert.leagueId, gameId: alert.gameId, week: currentWeek, season: currentSeason }
+          );
           
         } catch (error) {
           console.error(`Failed to send notification to user ${alert.userId}:`, error);
@@ -262,6 +321,8 @@ export const checkLineupDeadlines = onSchedule(
   {
     schedule: 'every 15 minutes',
     region: REGION,
+    timeZone: 'Europe/Berlin',
+    secrets: [secrets.WEB_PUSH_VAPID_PUBLIC_KEY, secrets.WEB_PUSH_VAPID_PRIVATE_KEY],
   },
   async () => {
     await performLineupDeadlineCheck();
@@ -270,7 +331,7 @@ export const checkLineupDeadlines = onSchedule(
 
 // Manual trigger for testing
 export const triggerLineupDeadlineCheck = onCall(
-  { region: REGION, cors: true },
+  { region: REGION, cors: true, secrets: [secrets.WEB_PUSH_VAPID_PUBLIC_KEY, secrets.WEB_PUSH_VAPID_PRIVATE_KEY] },
   async (request) => {
     // Verify admin access
     if (!request.auth?.uid) {
@@ -296,9 +357,67 @@ export const triggerLineupDeadlineCheck = onCall(
   }
 );
 
+// --- Web Push (Safari/iOS PWA) Support ---
+let webPushConfigured = false;
+function ensureWebPushConfigured(): boolean {
+  try {
+    const pub = secrets.WEB_PUSH_VAPID_PUBLIC_KEY.value();
+    const priv = secrets.WEB_PUSH_VAPID_PRIVATE_KEY.value();
+    if (!pub || !priv) return false;
+    if (!webPushConfigured) {
+      webpush.setVapidDetails('mailto:support@easy-fantasy.app', pub, priv);
+      webPushConfigured = true;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const saveWebPushSubscription = onCall(
+  { region: REGION, cors: true, secrets: [secrets.WEB_PUSH_VAPID_PUBLIC_KEY, secrets.WEB_PUSH_VAPID_PRIVATE_KEY] },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Must be authenticated');
+    }
+    const raw = request.data?.subscription as { endpoint?: string; keys?: { p256dh?: string; auth?: string }; toJSON?: () => unknown } | undefined;
+    const sub = (raw && typeof raw.toJSON === 'function') ? (raw.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } }) : raw;
+    if (!sub || !sub.endpoint || !sub.keys?.p256dh || !sub.keys?.auth) {
+      throw new HttpsError('invalid-argument', 'Missing subscription');
+    }
+    try {
+      // Store a sanitized subscription
+      await admin.firestore().collection('users').doc(request.auth.uid).set({ webPushSubscription: { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } } }, { merge: true });
+      return { success: true };
+    } catch {
+      throw new HttpsError('internal', 'Failed to save subscription');
+    }
+  }
+);
+
+export async function sendWebPushToUser(userId: string, payload: Record<string, unknown>) {
+  if (!ensureWebPushConfigured()) return;
+  const userSnap = await admin.firestore().collection('users').doc(userId).get();
+  const saved = userSnap.data()?.webPushSubscription as { endpoint?: string; keys?: { p256dh?: string; auth?: string } } | undefined;
+  if (!saved || typeof saved.endpoint !== 'string' || !saved.endpoint) {
+    console.warn('WebPush: missing endpoint for user', userId);
+    return;
+  }
+  if (!saved.keys?.p256dh || !saved.keys?.auth) {
+    console.warn('WebPush: missing keys for user', userId);
+    return;
+  }
+  const sub = { endpoint: saved.endpoint, keys: { p256dh: saved.keys.p256dh, auth: saved.keys.auth } } as unknown as PushSubscription;
+  try {
+    await webpush.sendNotification(sub, JSON.stringify(payload));
+  } catch (e) {
+    console.warn('WebPush send failed', e as Error);
+  }
+}
+
 // Function to send performance alerts (captain success, scoring)
 export const sendPerformanceAlert = onCall(
-  { region: REGION, cors: true },
+  { region: REGION, cors: true, secrets: [secrets.WEB_PUSH_VAPID_PUBLIC_KEY, secrets.WEB_PUSH_VAPID_PRIVATE_KEY] },
   async (request) => {
     if (!request.auth?.uid) {
       throw new HttpsError('unauthenticated', 'Must be authenticated');
@@ -340,20 +459,34 @@ export const sendPerformanceAlert = onCall(
         return { success: false, message: 'Notification criteria not met' };
       }
       
-      const message = {
-        token: userData.fcmToken,
-        notification: { title, body },
-        data: {
-          type,
-          playerName,
-          points: points.toString()
+      // Try FCM first if token exists
+      const token = userData.fcmToken;
+      if (token) {
+        const message = {
+          token,
+          notification: { title, body },
+          data: { type, playerName, points: points.toString() }
+        };
+        try {
+          await messaging.send(message);
+          console.log(`Sent performance alert (FCM) to user ${request.auth.uid}: ${title}`);
+        } catch (err: unknown) {
+          const msg = (err as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
+          if (msg === 'messaging/registration-token-not-registered') {
+            // Clean up invalid token to prevent future failures
+            await admin.firestore().collection('users').doc(request.auth.uid).set({ fcmToken: admin.firestore.FieldValue.delete() }, { merge: true });
+            console.warn(`Removed invalid FCM token for user ${request.auth.uid}`);
+          } else {
+            console.warn('FCM send failed:', err);
+          }
         }
-      };
-      
-      await messaging.send(message);
-      console.log(`Sent performance alert to user ${request.auth.uid}: ${title}`);
-      
-      return { success: true, message: 'Performance alert sent' };
+      }
+
+      // Also attempt Web Push (iOS PWA/Safari)
+      await sendWebPushToUser(request.auth.uid, { title, body, data: { type, playerName, points: String(points) } });
+      await persistUserNotification(request.auth.uid, 'performance', title, body, { type, playerName, points });
+
+      return { success: true, message: 'Performance alert dispatched' };
       
     } catch (error) {
       console.error('Error sending performance alert:', error);
@@ -364,7 +497,7 @@ export const sendPerformanceAlert = onCall(
 
 // Function to send injury alerts
 export const sendInjuryAlert = onCall(
-  { region: REGION, cors: true },
+  { region: REGION, cors: true, secrets: [secrets.WEB_PUSH_VAPID_PUBLIC_KEY, secrets.WEB_PUSH_VAPID_PRIVATE_KEY] },
   async (request) => {
     if (!request.auth?.uid) {
       throw new HttpsError('unauthenticated', 'Must be authenticated');
@@ -406,22 +539,37 @@ export const sendInjuryAlert = onCall(
         return { success: false, message: 'Non-critical injury status' };
       }
       
-      const message = {
-        token: userData.fcmToken,
-        notification: { title, body },
-        data: {
-          type: 'injury_alert',
-          playerName,
-          injuryStatus,
-          injuryDetails: injuryDetails || '',
-          suggestedReplacement: suggestedReplacement || ''
+      const token = userData.fcmToken;
+      if (token) {
+        const message = {
+          token,
+          notification: { title, body },
+          data: {
+            type: 'injury_alert',
+            playerName,
+            injuryStatus,
+            injuryDetails: injuryDetails || '',
+            suggestedReplacement: suggestedReplacement || ''
+          }
+        };
+        try {
+          await messaging.send(message);
+          console.log(`Sent injury alert (FCM) to user ${request.auth.uid}: ${playerName} - ${injuryStatus}`);
+        } catch (err: unknown) {
+          const msg = (err as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
+          if (msg === 'messaging/registration-token-not-registered') {
+            await admin.firestore().collection('users').doc(request.auth.uid).set({ fcmToken: admin.firestore.FieldValue.delete() }, { merge: true });
+            console.warn(`Removed invalid FCM token for user ${request.auth.uid}`);
+          } else {
+            console.warn('FCM send failed:', err);
+          }
         }
-      };
+      }
+
+      await sendWebPushToUser(request.auth.uid, { title, body, data: { type: 'injury_alert', playerName, injuryStatus } });
+      await persistUserNotification(request.auth.uid, 'injury', title, body, { playerName, injuryStatus, injuryDetails, suggestedReplacement });
       
-      await messaging.send(message);
-      console.log(`Sent injury alert to user ${request.auth.uid}: ${playerName} - ${injuryStatus}`);
-      
-      return { success: true, message: 'Injury alert sent' };
+      return { success: true, message: 'Injury alert dispatched' };
       
     } catch (error) {
       console.error('Error sending injury alert:', error);
@@ -432,7 +580,7 @@ export const sendInjuryAlert = onCall(
 
 // Function to send achievement alerts
 export const sendAchievementAlert = onCall(
-  { region: REGION, cors: true },
+  { region: REGION, cors: true, secrets: [secrets.WEB_PUSH_VAPID_PUBLIC_KEY, secrets.WEB_PUSH_VAPID_PRIVATE_KEY] },
   async (request) => {
     if (!request.auth?.uid) {
       throw new HttpsError('unauthenticated', 'Must be authenticated');
@@ -488,8 +636,23 @@ export const sendAchievementAlert = onCall(
         }
       };
       
-      await messaging.send(message);
-      console.log(`Sent achievement alert to user ${request.auth.uid}: ${achievementType}`);
+      try {
+        await messaging.send(message);
+        console.log(`Sent achievement alert to user ${request.auth.uid}: ${achievementType}`);
+      } catch (err: unknown) {
+        const msg = (err as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
+        if (msg === 'messaging/registration-token-not-registered') {
+          // Clean up invalid token to prevent future failures
+          await admin.firestore().collection('users').doc(request.auth.uid).set({ fcmToken: admin.firestore.FieldValue.delete() }, { merge: true });
+          console.warn(`Removed invalid FCM token for user ${request.auth.uid}`);
+          return { success: false, message: 'FCM token was invalid and has been removed. Please refresh the page to generate a new token.' };
+        } else {
+          console.warn('FCM send failed:', err);
+          throw err; // Re-throw non-token errors
+        }
+      }
+      
+      await persistUserNotification(request.auth.uid, 'achievement', title, body, { achievementType, weekCount, leagueName });
       
       return { success: true, message: 'Achievement alert sent' };
       
@@ -502,7 +665,7 @@ export const sendAchievementAlert = onCall(
 
 // Function to update user notification preferences
 export const updateNotificationPreferences = onCall(
-  { region: REGION, cors: true },
+  { region: REGION, cors: true, secrets: [secrets.WEB_PUSH_VAPID_PUBLIC_KEY, secrets.WEB_PUSH_VAPID_PRIVATE_KEY] },
   async (request) => {
     if (!request.auth?.uid) {
       throw new HttpsError('unauthenticated', 'Must be authenticated');

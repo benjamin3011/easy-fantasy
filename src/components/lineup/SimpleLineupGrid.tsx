@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Suspense, lazy } from 'react';
 import { useLineupStore } from '../../store/lineupStore';
 import { useNetworkStatus } from '../common/NetworkStatusProvider';
@@ -16,6 +16,8 @@ const StatsModal = lazy(() => import('../modals/StatsModal'));
 const StrategyPanel = lazy(() => import('./StrategyPanel'));
 import { APP_CONFIG } from '../../config/appConfig';
 import { calculateCurrentNFLWeek } from '../../utils/nflWeekHelper';
+import { useActualLineupPoints } from '../../hooks/useActualLineupPoints';
+import { LineupPointsProvider } from '../../context/LineupPointsContext';
 
 interface SimpleLineupGridProps {
   enableCaptainFeature: boolean;
@@ -30,6 +32,8 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
     isLoadingLineup,
     currentWeek,
     currentSeason,
+    lineup,
+    designatedCaptainSlotKey,
     setOnlineStatus,
     loadPendingChanges,
   } = useLineupStore();
@@ -52,6 +56,23 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
   useEffect(() => {
     loadPendingChanges();
   }, [loadPendingChanges]);
+  
+  // Prepare lineup entities for actual points fetching
+  const lineupEntities = useMemo(() => {
+    if (!lineup) return [];
+    
+    return Object.entries(lineup).map(([positionKey, entity]) => ({
+      entity,
+      positionKey: positionKey as any
+    })).filter(({ entity }) => entity !== null);
+  }, [lineup]);
+
+  // Get actual points data when games have started
+  const { hasGameStarted, actualPoints, isLoading: actualPointsLoading } = useActualLineupPoints(
+    currentWeek || calculateCurrentNFLWeek(), 
+    currentSeason || parseInt(APP_CONFIG.CURRENT_NFL_SEASON), 
+    lineupEntities
+  );
   
   // Show loading overlay while lineup is being loaded
   if (isLoadingLineup) {
@@ -83,7 +104,13 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
   const seasonForActions = currentSeason || parseInt(APP_CONFIG.CURRENT_NFL_SEASON, 10);
 
   return (
-    <>
+    <LineupPointsProvider 
+      hasGameStarted={hasGameStarted}
+      actualPoints={actualPoints}
+      isLoading={actualPointsLoading}
+      captainSlotKey={designatedCaptainSlotKey}
+      captainMultiplier={captainPointMultiplier}
+    >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column - Lineup Slots */}
         <div className="lg:col-span-2 space-y-6">
@@ -165,7 +192,7 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
           />
         )}
       </Suspense>
-    </>
+    </LineupPointsProvider>
   );
 };
 

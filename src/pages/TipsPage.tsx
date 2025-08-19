@@ -10,6 +10,7 @@ import InlineWeekSelector from '../components/common/InlineWeekSelector';
 const WeeklyTips = lazy(() => import('../components/gamecenter/WeeklyTips'));
 const ProphetLeaderboard = lazy(() => import('../components/gamecenter/ProphetLeaderboard').then(m => ({ default: m.ProphetLeaderboard })));
 import { APP_CONFIG } from '../config/appConfig';
+import QueryBoundary from '../components/common/QueryBoundary';
 import { useTipsStore } from '../store/tipsStore';
 import { SkeletonPage } from '../components/ui/skeleton/SkeletonLoader';
 import ComponentCard from '../components/common/ComponentCard';
@@ -236,7 +237,7 @@ export default function TipsPage() {
       )}
 
       <PullToRefresh onRefresh={async () => { window.location.reload(); }}> 
-      <div className="container mx-auto px-4 py-6 pb-content-safe">
+      <div className="container mx-auto px-2 py-6 pb-content-safe">
         {/* Header with Inline Selectors */}
         <div className="mb-6">
           {/* Desktop: Show page title */}
@@ -293,7 +294,8 @@ export default function TipsPage() {
 
         {/* Content */}
         {selectedTipsLeague && (
-          <Suspense fallback={<SkeletonPage type="dashboard" />}> 
+          <QueryBoundary>
+            <Suspense fallback={<SkeletonPage type="dashboard" />}> 
             {activeTab === 'tips' ? (
               <WeeklyTips
                 leagueId={selectedTipsLeague.id}
@@ -306,7 +308,8 @@ export default function TipsPage() {
                 season={currentSeason}
               />
             )}
-          </Suspense>
+            </Suspense>
+          </QueryBoundary>
         )}
       </div>
       </PullToRefresh>

@@ -219,6 +219,12 @@ async function updateTeamsAndPlayers() {
             if (playerDataToSet) { // Renamed to avoid conflict with outer playerData if any scope issues, though likely fine
                 activePlayerIds.add(player.playerID);
                 const playerRef = db.collection('players').doc(player.playerID);
+                
+                // Check for injury status changes before updating (fire-and-forget)
+                checkInjuryStatusChange(player.playerID, player.longName, player.injury).catch(error => {
+                    logger.warn(`Injury status check failed for player ${player.playerID}:`, error);
+                });
+                
                 // playerData is already cleaned by removeUndefinedFields
                 batch.set(playerRef, playerDataToSet, { merge: true });
             }
@@ -273,3 +279,125 @@ export const manualUpdateTeamsAndPlayers = onCall(
       }
   }
 );
+
+/**
+ * Check if player injury status has changed and send notifications
+ */
+async function checkInjuryStatusChange(
+  playerId: string, 
+  playerName: string, 
+  newInjuryData: unknown
+): Promise<void> {
+  try {
+    // Get current player data to compare injury status
+    const playerDoc = await db.collection('players').doc(playerId).get();
+    
+    if (!playerDoc.exists) {
+      return; // New player, no comparison needed
+    }
+    
+    const currentData = playerDoc.data();
+    const oldInjuryData = currentData?.injuryData;
+    
+    // Extract injury status from injury data
+    const getInjuryStatus = (injuryData: unknown): string | null => {
+      if (!injuryData) return null;
+      if (typeof injuryData === 'string') return injuryData;
+      return (injuryData as { designation?: string; injuryStatus?: string }).designation || 
+             (injuryData as { designation?: string; injuryStatus?: string }).injuryStatus || null;
+    };
+    
+    const oldStatus = getInjuryStatus(oldInjuryData);
+    const newStatus = getInjuryStatus(newInjuryData);
+    
+    // Check if status changed to something concerning
+    if (oldStatus !== newStatus && newStatus) {
+      const concerningStatuses = ['Out', 'Doubtful', 'Questionable'];
+      
+      if (concerningStatuses.includes(newStatus)) {
+        // Find users who have this player and send notifications
+        await sendInjuryNotificationsForPlayer(
+          playerId, 
+          playerName, 
+          newStatus
+        );
+      }
+    }
+    
+  } catch (error) {
+    logger.error(`Error checking injury status for player ${playerId}:`, error);
+  }
+}
+
+/**
+ * Send injury notifications to all users who have this player
+ */
+async function sendInjuryNotificationsForPlayer(
+  playerId: string,
+  playerName: string,
+  injuryStatus: string
+): Promise<void> {
+  try {
+    // Find all users who have this player in their current lineups
+    const currentWeek = calculateCurrentNFLWeek();
+    const currentSeason = parseInt(config.CURRENT_NFL_SEASON, 10);
+    
+    const lineupCollectionGroup = db.collectionGroup('weeklyLineups');
+    const lineupQuery = lineupCollectionGroup
+      .where('season', '==', currentSeason)
+      .where('week', '==', currentWeek);
+    
+    const lineupSnapshot = await lineupQuery.get();
+    
+
+    
+    for (const lineupDoc of lineupSnapshot.docs) {
+      const lineupData = lineupDoc.data();
+      const picks = lineupData.picks || {};
+      const userId = lineupData.userId;
+      
+      // Check if this player is in the user's lineup
+      const hasPlayer = Object.values(picks).some((pick: unknown) => 
+        (pick as { id?: string; type?: string })?.id === playerId && (pick as { id?: string; type?: string })?.type === 'player'
+      );
+      
+      if (hasPlayer && userId) {
+        try {
+          const userSnap = await db.collection('users').doc(userId).get();
+          const userData = userSnap.data() as { fcmToken?: string; notificationPreferences?: { enabled?: boolean; injuryAlerts?: boolean }; webPushSubscription?: unknown } | undefined;
+          const fcmToken = userData?.fcmToken;
+          const prefs = userData?.notificationPreferences || {};
+          // Web Push handled via helper; no local use of subscription here
+          if (!prefs.enabled || !prefs.injuryAlerts) continue;
+
+          const title = injuryStatus === 'Out' ? '🏥 Injury Alert' : '⚠️ Injury Update';
+          const body = injuryStatus === 'Out'
+            ? `${playerName} is ruled OUT.`
+            : `${playerName} status: ${injuryStatus}.`;
+
+          if (fcmToken) {
+            await admin.messaging().send({
+              token: fcmToken,
+              notification: { title, body },
+              data: { type: 'injury_alert', playerName, injuryStatus },
+            });
+          }
+          // Also try Web Push via shared helper
+          await (await import('./notifications.js')).sendWebPushToUser(userId, { title, body, data: { type: 'injury_alert', playerName, injuryStatus } });
+          logger.info(`Injury alert delivered to ${userId} for ${playerName} - ${injuryStatus}`);
+        } catch (sendErr) {
+          logger.warn(`Failed to send injury alert to ${userId}`, sendErr);
+        }
+      }
+    }
+    
+    // Injury events are logged for monitoring
+    
+  } catch (error) {
+    logger.error(`Error sending injury notifications for player ${playerId}:`, error);
+  }
+}
+
+// Injury notifications can be triggered via admin interface for testing
+
+

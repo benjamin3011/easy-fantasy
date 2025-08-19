@@ -17,10 +17,6 @@ export default function LeagueDetailTabs({ tabs, className = '' }: LeagueDetailT
   const [activeTab, setActiveTab] = useState(tabs[0]?.id || '');
   const { user } = useAuth();
 
-  if (!user || tabs.length === 0) {
-    return null;
-  }
-
   // Filter tabs based on admin status
   const visibleTabs = tabs.filter(tab => !tab.adminOnly || user?.uid);
 
@@ -32,6 +28,10 @@ export default function LeagueDetailTabs({ tabs, className = '' }: LeagueDetailT
       setActiveTab(visibleTabs[0]?.id || '');
     }
   }, [visibleTabs, activeTab]);
+
+  if (!user || tabs.length === 0) {
+    return null;
+  }
 
   return (
     <div className={`${className}`}>

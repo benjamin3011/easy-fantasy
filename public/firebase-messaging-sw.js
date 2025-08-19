@@ -1,15 +1,8 @@
 // public/firebase-messaging-sw.js
-importScripts('https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/9.22.1/firebase-messaging-compat.js');
-
-firebase.initializeApp({
-  apiKey: 'AIzaSyA3WWFEVtzqan9JnYTNJ1WENH4cazYrmlQ',
-  authDomain: 'easy-fantasy.firebaseapp.com',
-  projectId: 'easy-fantasy',
-  storageBucket: 'easy-fantasy.firebasestorage.app',
-  messagingSenderId: '1004764027197',
-  appId: '1:1004764027197:web:e35143afd55d96538d8d54',
-});
+// Use Firebase Hosting auto-injected config to avoid committing API keys
+importScripts('/__/firebase/9.22.1/firebase-app-compat.js');
+importScripts('/__/firebase/9.22.1/firebase-messaging-compat.js');
+importScripts('/__/firebase/init.js');
 
 const messaging = firebase.messaging();
 

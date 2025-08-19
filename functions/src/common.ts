@@ -3,10 +3,14 @@ import { config } from './config';
 
 /**
  * Calculates the current NFL week based on a Wednesday-Tuesday cycle.
- * @returns {number} The current NFL week number (1-18).
+ * @returns {number} The current NFL week number (1-18 for regular season, 1-4 for pre-season).
  */
 export const calculateCurrentNFLWeek = (): number => {
-  const seasonStartDate = config.SEASON_START_DATE_REF; // Use configured start date (first Wednesday)
+  // Use appropriate start date based on season type
+  const seasonStartDate = config.CURRENT_SEASON_TYPE === "pre" 
+    ? config.PRE_SEASON_START_DATE_REF 
+    : config.SEASON_START_DATE_REF;
+    
   const today = new Date();
 
   // Calculate the difference in days between today and the first Wednesday
@@ -17,8 +21,28 @@ export const calculateCurrentNFLWeek = (): number => {
   // Each NFL week is 7 days (Wed-Tue), divide by 7 to get the current week
   const week = Math.floor(daysDiff / 7) + 1; // Add 1 because week numbers are 1-based
 
-  // Clamp the week number between 1 and the max number of weeks
-  return Math.max(1, Math.min(week, config.MAX_NFL_WEEKS));
+  // Clamp the week number based on season type
+  const maxWeeks = config.CURRENT_SEASON_TYPE === "pre" ? 4 : config.MAX_NFL_WEEKS;
+  return Math.max(1, Math.min(week, maxWeeks));
+};
+
+/**
+ * Converts internal week number to API week number.
+ * Pre-season: Internal week 1 = API week 2 (due to Hall of Fame game)
+ * Regular season: Internal week = API week (no offset)
+ */
+export const getAPIWeekNumber = (internalWeek: number): number => {
+  if (config.CURRENT_SEASON_TYPE === "pre") {
+    return internalWeek + config.PRE_SEASON_WEEK_OFFSET;
+  }
+  return internalWeek;
+};
+
+/**
+ * Gets the current season type from config
+ */
+export const getCurrentSeasonType = (): string => {
+  return config.CURRENT_SEASON_TYPE;
 };
 
 

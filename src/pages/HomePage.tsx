@@ -2,9 +2,10 @@ import { useState, useEffect, Suspense, lazy } from 'react';
 import PageMeta from "../components/common/PageMeta";
 import { useAuth } from '../context/AuthContext';
 import { useLeagueContext } from '../context/LeagueContext';
-import { checkLineupCompletionStatus, fetchWeeklySchedule, FirestoreWeeklySchedule } from '../services/lineupFetchingService';
-import { League } from '../utils/leagues';
+import { checkLineupCompletionStatus, fetchWeeklySchedule } from '../services/lineupFetchingService';
+import type { FirestoreWeeklySchedule, GameInfoFromSchedule } from '../services/lineupFetchingService';
 import { APP_CONFIG } from '../config/appConfig';
+import { useQuery } from '@tanstack/react-query';
 
 import { SkeletonPage } from '../components/ui/skeleton/SkeletonLoader';
 import PullToRefresh from '../components/ui/PullToRefresh';
@@ -16,6 +17,7 @@ import CaptainTrackerCard from '../components/analytics/CaptainTrackerCard';
 import ResponsiveHomeTabs from '../components/dashboard/ResponsiveHomeTabs';
 import InlineLeagueSelector from '../components/common/InlineLeagueSelector';
 import InlineWeekSelector from '../components/common/InlineWeekSelector';
+import QueryBoundary from '../components/common/QueryBoundary';
 
 const UnifiedGamesWidget = lazy(() => import('../components/dashboard/UnifiedGamesWidget'));
 
@@ -30,13 +32,42 @@ export default function HomePage() {
     effectiveWeek
   } = useLeagueContext();
   
-  const [lineupStatus, setLineupStatus] = useState({
+  const defaultLineupStatus = {
     lineupsSet: 0,
     lineupsComplete: 0,
     totalLeagues: 0,
-    isLoading: true,
+  } as const;
+
+  const {
+    data: lineupStatus = defaultLineupStatus,
+    isFetching: lineupLoading,
+    refetch: refetchLineupStatus,
+  } = useQuery({
+    queryKey: ['lineupStatus', user?.uid, effectiveWeek, leagues.map((l) => l.id).sort()],
+    enabled: !!user?.uid && leagues.length > 0,
+    queryFn: async () => {
+      const season = APP_CONFIG.CURRENT_NFL_SEASON;
+      const lineupStatuses = await Promise.all(
+        leagues.map((league) =>
+          checkLineupCompletionStatus(user!.uid, league.id, effectiveWeek, season)
+        )
+      );
+      return {
+        lineupsSet: lineupStatuses.filter((s) => s.exists).length,
+        lineupsComplete: lineupStatuses.filter((s) => s.isComplete).length,
+        totalLeagues: leagues.length,
+      };
+    },
+    staleTime: 1000 * 60 * 5,
   });
-  const [scheduleData, setScheduleData] = useState<FirestoreWeeklySchedule | null>(null);
+  const {
+    data: scheduleData,
+    refetch: refetchSchedule,
+  } = useQuery<FirestoreWeeklySchedule | null, Error>({
+    queryKey: ['weeklySchedule', APP_CONFIG.CURRENT_NFL_SEASON, effectiveWeek],
+    queryFn: () => fetchWeeklySchedule(APP_CONFIG.CURRENT_NFL_SEASON, effectiveWeek),
+    enabled: effectiveWeek > 0,
+  });
   
   // Onboarding state
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -55,53 +86,14 @@ export default function HomePage() {
     }
   }, [user?.uid, authLoading]);
 
-  // Fetch schedule data
-  useEffect(() => {
-    const loadSchedule = async () => {
-      try {
-        const season = APP_CONFIG.CURRENT_NFL_SEASON;
-        const data = await fetchWeeklySchedule(season, effectiveWeek);
-        setScheduleData(data);
-      } catch (err) {
-        console.error("Error fetching weekly schedule:", err);
-      }
-    };
 
-    if (effectiveWeek > 0) {
-      loadSchedule();
-    }
-  }, [effectiveWeek]);
 
-  // Check lineup status when leagues change
-  useEffect(() => {
-    if (user?.uid && leagues.length > 0) {
-      checkLineupForAllLeagues(leagues, user.uid);
-    } else if (!leaguesLoading) {
-      setLineupStatus({ lineupsSet: 0, lineupsComplete: 0, totalLeagues: 0, isLoading: false });
-    }
-  }, [user?.uid, leagues, effectiveWeek, leaguesLoading]);
 
-  const checkLineupForAllLeagues = async (leagues: League[], userId: string) => {
-    setLineupStatus(prev => ({ ...prev, isLoading: true }));
-    const totalLeagues = leagues.length;
-    try {
-      const season = APP_CONFIG.CURRENT_NFL_SEASON;
-      const lineupStatuses = await Promise.all(
-        leagues.map(league => checkLineupCompletionStatus(userId, league.id, effectiveWeek, season))
-      );
-      
-      const lineupsSet = lineupStatuses.filter(status => status.exists).length;
-      const lineupsComplete = lineupStatuses.filter(status => status.isComplete).length;
-      
-      setLineupStatus({ lineupsSet, lineupsComplete, totalLeagues, isLoading: false });
-    } catch {
-      setLineupStatus({ lineupsSet: 0, lineupsComplete: 0, totalLeagues, isLoading: false });
-    }
-  };
+
 
   // Calculate next game time
   const getNextGameTime = (): number | null => {
-    if (!scheduleData?.games || scheduleData.games.length === 0) {
+    if (!scheduleData || scheduleData.games.length === 0) {
       const now = new Date();
       const sunday = new Date();
       sunday.setDate(now.getDate() + (7 - now.getDay()));
@@ -111,14 +103,14 @@ export default function HomePage() {
 
     const now = Date.now() / 1000;
     const upcomingGames = scheduleData.games
-      .map(game => {
+      .map((game: GameInfoFromSchedule) => {
         const gameTime = typeof game.gameTime_epoch === 'string' 
           ? parseInt(game.gameTime_epoch, 10) 
           : game.gameTime_epoch;
         return gameTime;
       })
-      .filter(gameTime => gameTime > now)
-      .sort((a, b) => a - b);
+      .filter((gameTime: number) => gameTime > now)
+      .sort((a: number, b: number) => a - b);
 
     return upcomingGames.length > 0 ? upcomingGames[0] * 1000 : null;
   };
@@ -133,15 +125,8 @@ export default function HomePage() {
 
   const handleRefresh = async () => {
     if (user?.uid) {
-      await checkLineupForAllLeagues(leagues, user.uid);
-      
-      try {
-        const season = APP_CONFIG.CURRENT_NFL_SEASON;
-        const data = await fetchWeeklySchedule(season, effectiveWeek);
-        setScheduleData(data);
-      } catch (err) {
-        console.error("Error refreshing schedule:", err);
-      }
+      await refetchLineupStatus();
+      await refetchSchedule();
     }
   };
 
@@ -159,7 +144,7 @@ export default function HomePage() {
           </div>
         )}
 
-        <div className="container mx-auto px-4 py-6 pb-content-safe">
+        <div className="container mx-auto px-2 py-6 pb-content-safe">
           {/* Header Section */}
           <div className="mb-6">
             {/* Desktop: Show page title */}
@@ -193,9 +178,38 @@ export default function HomePage() {
                   label: 'Games',
                   component: (
                     <div className="space-y-4">
-                      <Suspense fallback={<div className="space-y-3">{Array(5).fill(0).map((_, i) => <div key={i} className="h-16 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />)}</div>}> 
+                      <QueryBoundary>
+                      <Suspense fallback={
+                        <div className="space-y-4">
+                          {Array(4).fill(0).map((_, i) => (
+                            <div key={i} className="p-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                              {/* Game header skeleton */}
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex-1">
+                                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-32 animate-pulse mb-2" />
+                                  <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-24 animate-pulse" />
+                                </div>
+                                <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded-full w-16 animate-pulse" />
+                              </div>
+                              {/* User lineup skeleton */}
+                              <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
+                                <div className="h-4 bg-blue-200 dark:bg-blue-800 rounded w-24 animate-pulse mb-2" />
+                                <div className="space-y-1">
+                                  {Array(3).fill(0).map((_, j) => (
+                                    <div key={j} className="flex justify-between">
+                                      <div className="h-3 bg-blue-200 dark:bg-blue-800 rounded w-20 animate-pulse" />
+                                      <div className="h-3 bg-blue-200 dark:bg-blue-800 rounded w-12 animate-pulse" />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      }> 
                         <UnifiedGamesWidget currentNflWeek={effectiveWeek} isMobileView={true} />
                       </Suspense>
+                      </QueryBoundary>
                     </div>
                   )
                 },
@@ -213,17 +227,21 @@ export default function HomePage() {
                           lineupsSet={lineupStatus.lineupsSet}
                           lineupsComplete={lineupStatus.lineupsComplete}
                           totalLeagues={lineupStatus.totalLeagues}
-                          isLoading={lineupStatus.isLoading}
+                          isLoading={lineupLoading}
                           currentWeek={effectiveWeek}
                           nextLockTime={nextGameTime}
                         />
                       </div>
 
                       {/* Quick Performance Analytics */}
+                      <QueryBoundary>
                       <QuickPerformanceCard leagueId={selectedLeagueId || undefined} />
+                    </QueryBoundary>
                       
                       {/* Captain Tracker Analytics */}
+                      <QueryBoundary>
                       <CaptainTrackerCard leagueId={selectedLeagueId || undefined} />
+                    </QueryBoundary>
                     </div>
                   )
                 }
@@ -231,12 +249,49 @@ export default function HomePage() {
             />
           </div>
 
-          {/* Desktop: Balanced Grid Layout (≥ 768px) */}
+          {/* Desktop: Left Games, Right Sidebar Layout (≥ 768px) */}
           <div className="hidden md:block">
-            <div className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-3">
               
-              {/* Top Section - Status & Quick Performance */}
-              <div className="grid gap-4 md:grid-cols-2">
+              {/* Left Column - Games (2/3 width) */}
+              <div className="md:col-span-2">
+                <QueryBoundary>
+                  <Suspense fallback={
+                    <div className="space-y-4">
+                      <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-40 animate-pulse mb-4" />
+                      {Array(4).fill(0).map((_, i) => (
+                        <div key={i} className="p-5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800">
+                          {/* Game header skeleton */}
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex-1">
+                              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-40 animate-pulse mb-2" />
+                              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-32 animate-pulse" />
+                            </div>
+                            <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded-full w-16 animate-pulse" />
+                          </div>
+                          {/* User lineup skeleton */}
+                          <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <div className="h-4 bg-blue-200 dark:bg-blue-800 rounded w-32 animate-pulse mb-2" />
+                            <div className="space-y-1">
+                              {Array(4).fill(0).map((_, j) => (
+                                <div key={j} className="flex justify-between">
+                                  <div className="h-3 bg-blue-200 dark:bg-blue-800 rounded w-28 animate-pulse" />
+                                  <div className="h-3 bg-blue-200 dark:bg-blue-800 rounded w-16 animate-pulse" />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  }> 
+                    <UnifiedGamesWidget currentNflWeek={effectiveWeek} />
+                  </Suspense>
+                </QueryBoundary>
+              </div>
+
+              {/* Right Column - Status & Analytics (1/3 width) */}
+              <div className="space-y-6">
                 
                 {/* Lineup Status */}
                 <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow duration-200">
@@ -247,26 +302,21 @@ export default function HomePage() {
                     lineupsSet={lineupStatus.lineupsSet}
                     lineupsComplete={lineupStatus.lineupsComplete}
                     totalLeagues={lineupStatus.totalLeagues}
-                    isLoading={lineupStatus.isLoading}
+                    isLoading={lineupLoading}
                     currentWeek={effectiveWeek}
                     nextLockTime={nextGameTime}
                   />
                 </div>
 
                 {/* Quick Performance Analytics */}
-                <QuickPerformanceCard leagueId={selectedLeagueId || undefined} />
-              </div>
-
-              {/* Bottom Section - Games & Captain Analytics */}
-              <div className="grid gap-4 md:grid-cols-2">
+                <QueryBoundary>
+                  <QuickPerformanceCard leagueId={selectedLeagueId || undefined} />
+                </QueryBoundary>
                 
-                {/* Games & Live Scoring */}
-                <Suspense fallback={<div className="h-96 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />}> 
-                  <UnifiedGamesWidget currentNflWeek={effectiveWeek} />
-                </Suspense>
-
                 {/* Captain Tracker Analytics */}
-                <CaptainTrackerCard leagueId={selectedLeagueId || undefined} />
+                <QueryBoundary>
+                  <CaptainTrackerCard leagueId={selectedLeagueId || undefined} />
+                </QueryBoundary>
               </div>
             </div>
           </div>

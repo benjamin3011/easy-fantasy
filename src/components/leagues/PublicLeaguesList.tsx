@@ -1,216 +1,189 @@
 // components/leagues/PublicLeaguesList.tsx
 import { useEffect, useState, useCallback } from "react";
-// getPublicLeagues now returns { leagues: ..., nextCursor: ... }
-import { getPublicLeagues, joinLeagueById, League } from "../../utils/leagues";
-import { useAuth } from "../../context/AuthContext";
-import Button from "../ui/button/Button";
-import { EnterIcon } from "../../icons";
-import { FunctionsError } from "firebase/functions";
-// Import type needed for pagination state
+import { getPublicLeagues, League } from "../../utils/leagues";
 import { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
-
-// Reusable type guard (or place in a shared utils file)
-function isFunctionsError(error: unknown): error is FunctionsError {
-  return typeof error === 'object' && error !== null && 'code' in error && typeof (error as { code: unknown }).code === 'string';
-}
+import JoinLeagueDialog from "./JoinLeagueDialog";
 
 export default function PublicLeaguesList() {
-  const { user } = useAuth();
-  const [leagues, setLeagues] = useState<League[]>([]); // State for the list of leagues
-  const [loading, setLoading] = useState(false); // For initial load indicator
-  const [error, setError] = useState<string | null>(null); // For fetch errors
-  const [loadingMore, setLoadingMore] = useState(false); // For "Load More" button indicator
-  // State to hold the cursor for the next page
+  const [leagues, setLeagues] = useState<League[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [hasNextPage, setHasNextPage] = useState(true); // Assume there's a next page initially
-  const [joiningLeagueId, setJoiningLeagueId] = useState<string | null>(null); // For join button loading state
+  const [hasNextPage, setHasNextPage] = useState(true);
+  const [joinDialogOpen, setJoinDialogOpen] = useState(false);
+  const [selectedLeagueCode, setSelectedLeagueCode] = useState<string>("");
 
   // useCallback to memoize the fetch function
   const loadLeagues = useCallback(async (loadMore = false) => {
-    // Prevent loading more if we know there are no more pages or already loading
     if ((!hasNextPage && loadMore) || loading || loadingMore) return;
 
-    setLoading(!loadMore); // Show initial loading indicator only
-    setLoadingMore(loadMore); // Show "Load More" loading indicator
-    setError(null); // Clear previous errors
+    setLoading(!loadMore);
+    setLoadingMore(loadMore);
+    setError(null);
 
     try {
-      // Call getPublicLeagues, passing the cursor if loading more
       const result = await getPublicLeagues(10, loadMore ? lastVisible : null);
-
-      // Update state: Append if loading more, replace if initial load
       setLeagues(prev => loadMore ? [...prev, ...result.leagues] : result.leagues);
-      setLastVisible(result.nextCursor ?? null); // Store the new cursor
-      setHasNextPage(!!result.nextCursor); // Update whether there's a next page
+      setLastVisible(result.nextCursor ?? null);
+      setHasNextPage(!!result.nextCursor);
     } catch (err) {
       console.error("Failed to load public leagues:", err);
       setError("Could not load public leagues. Please try again.");
     } finally {
-      setLoading(false); // Clear initial loading
-      setLoadingMore(false); // Clear "Load More" loading
+      setLoading(false);
+      setLoadingMore(false);
     }
-  // Dependencies: Recreate function if lastVisible or hasNextPage state changes
-  }, [lastVisible, hasNextPage, loading, loadingMore]);
+  }, [hasNextPage, loading, loadingMore, lastVisible]);
 
-  // useEffect to trigger the initial load when the component mounts
+  // Initial load
   useEffect(() => {
-    loadLeagues(false); // Call the memoized function for the initial load
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty dependency array: Run only once on mount
+    loadLeagues();
+  }, [loadLeagues]);
 
-  // Handle Join button click (logic unchanged, uses correct callable wrapper)
-  const handleJoin = async (leagueId: string) => {
-    if (!user) {
-      alert("Please log in to join a league.");
-      return;
-    }
-    const teamName = prompt("Enter your team name:");
-    if (!teamName || !teamName.trim()) {
-      return;
-    }
-    setJoiningLeagueId(leagueId);
-    try {
-      await joinLeagueById(leagueId, teamName.trim());
-      alert("Successfully joined the league!");
-      // TODO: Optionally refresh user's league list or navigate
-    } catch (err: unknown) { // Catch as unknown
-      console.error(`Error joining league ${leagueId}:`, err);
-      let message = "Could not join league. Please try again.";
-      if (isFunctionsError(err)) {
-        switch (err.code) {
-            case 'functions/unauthenticated': message = "Authentication error. Please log in again."; break;
-            case 'functions/not-found': message = "League not found."; break;
-            case 'functions/already-exists': message = "You are already a member of this league."; break;
-            case 'functions/invalid-argument': message = `Invalid input: ${err.message}`; break;
-            default: message = `An unexpected error occurred (${err.code}): ${err.message}`; break;
-        }
-      } else if (err instanceof Error) { message = err.message; }
-      alert(`Join failed: ${message}`);
-    } finally {
-      setJoiningLeagueId(null);
+  const handleJoinClick = (leagueCode: string) => {
+    setSelectedLeagueCode(leagueCode);
+    setJoinDialogOpen(true);
+  };
+
+  const handleJoinSuccess = () => {
+    // Refresh the leagues list after successful join
+    loadLeagues();
+    setError(null);
+  };
+
+  const getActivityBadge = (memberCount: number) => {
+    if (memberCount >= 8) {
+      return { text: 'Very Active', color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200', icon: '🔥' };
+    } else if (memberCount >= 4) {
+      return { text: 'Active', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200', icon: '⚡' };
+    } else {
+      return { text: 'New League', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200', icon: '🌟' };
     }
   };
 
-  // Don't render anything if logged out
-  if (!user) return null;
-
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 shadow-sm">
-      {/* Mobile-First Header */}
-      <div className="px-4 pt-6 pb-4 sm:px-6">
-        <div>
-          <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-            Public Leagues
-          </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            Join existing leagues
-          </p>
-        </div>
+    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+      {/* Header */}
+      <div className="px-4 py-6 border-b border-gray-200 dark:border-gray-700 sm:px-6">
+        <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+          Discover Public Leagues
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+          Join exciting leagues created by other players
+        </p>
       </div>
 
-      {/* Loading State */}
-      {loading && (
-        <div className="px-4 py-12 text-center sm:px-6">
-          <div className="inline-flex items-center">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-brand-500 mr-3"></div>
-            <span className="text-gray-600 dark:text-gray-400">Loading public leagues...</span>
+      {/* Content */}
+      <div className="p-4 sm:p-6">
+        {/* Error State */}
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4">
+            <div className="flex items-center">
+              <div className="text-red-600 dark:text-red-400 mr-3">⚠️</div>
+              <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Error State */}
-      {!loading && error && (
-        <div className="px-4 py-12 text-center sm:px-6">
-          <div className="text-red-600 dark:text-red-400">
-            <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-            <p className="text-sm mb-4">{error}</p>
-            <Button size="sm" variant="outline" onClick={() => loadLeagues(false)}>
-              Try Again
-            </Button>
+        {/* Loading State - Initial */}
+        {loading && leagues.length === 0 && (
+          <div className="space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-gray-100 dark:bg-gray-700 rounded-lg h-20 animate-pulse" />
+            ))}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Empty State */}
-      {!loading && !error && leagues.length === 0 && (
-        <div className="px-4 py-12 text-center sm:px-6">
-          <div className="text-gray-500 dark:text-gray-400">
-            <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
-            </svg>
-            <p className="text-sm">No public leagues found</p>
-          </div>
-        </div>
-      )}
-
-      {/* League Cards */}
-      {!loading && !error && leagues.length > 0 && (
-        <div>
-          {leagues.map((league, index) => (
-            <div 
-              key={league.id} 
-              className={`px-4 py-4 sm:px-6 ${index > 0 ? 'border-t border-gray-200 dark:border-gray-700' : ''}`}
+        {/* Empty State */}
+        {!loading && !error && leagues.length === 0 && (
+          <div className="text-center py-8">
+            <div className="text-4xl mb-4">🌍</div>
+            <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+              No Public Leagues Found
+            </h4>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">
+              Be the first to create a public league for others to join!
+            </p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="shadow-theme-xs inline-flex h-8 items-center justify-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-lg font-semibold text-gray-900 dark:text-white truncate">
-                    {league.name}
-                  </h4>
-                  <div className="flex items-center mt-2 text-sm text-gray-600 dark:text-gray-400">
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                    </svg>
-                    {league.members?.length ?? 0} member{league.members?.length !== 1 ? "s" : ""}
+              🔄 Refresh
+            </button>
+          </div>
+        )}
+
+        {/* Leagues List */}
+        {leagues.length > 0 && (
+          <div className="space-y-4">
+            {leagues.map((league) => {
+              const memberCount = league.members?.length ?? 0;
+              const activityBadge = getActivityBadge(memberCount);
+
+
+              return (
+                <div
+                  key={league.id}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-semibold text-lg text-gray-900 dark:text-white truncate mb-2">
+                        {league.name}
+                      </h4>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${activityBadge.color}`}>
+                          {activityBadge.icon} {activityBadge.text}
+                        </span>
+                      </div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        👥 {memberCount} member{memberCount !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+                    
+                    <button
+                      onClick={() => handleJoinClick(league.code.toString())}
+                      className="shadow-theme-xs inline-flex h-6 items-center justify-center rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 ml-4"
+                      title="Join League"
+                    >
+                      Join
+                    </button>
                   </div>
                 </div>
-                <div className="ml-4 flex-shrink-0">
-                  <Button
-                    onClick={() => handleJoin(league.id)}
-                    disabled={joiningLeagueId === league.id}
-                    size="sm"
-                    variant="outline"
-                    startIcon={joiningLeagueId === league.id ? undefined : <EnterIcon className="w-4 h-4" />}
-                    className="min-w-[80px]"
-                  >
-                    {joiningLeagueId === league.id ? (
-                      <div className="flex items-center">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Joining...
-                      </div>
-                    ) : (
-                      "Join"
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ))}
+              );
+            })}
 
-          {/* Load More Button */}
-          {hasNextPage && (
-            <div className="px-4 py-6 text-center border-t border-gray-200 dark:border-gray-700 sm:px-6">
-              <Button 
+            {/* Load More Button */}
+            {hasNextPage && (
+              <div className="text-center pt-4">
+                              <button 
                 onClick={() => loadLeagues(true)} 
                 disabled={loadingMore}
-                variant="outline"
-                size="md"
-                className="w-full sm:w-auto"
+                className="shadow-theme-xs inline-flex h-8 items-center justify-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed w-full"
               >
                 {loadingMore ? (
-                  <div className="flex items-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand-500 mr-2"></div>
-                    Loading...
+                  <div className="flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border border-gray-400 border-t-transparent"></div>
+                    <span>Loading...</span>
                   </div>
                 ) : (
-                  "Load More"
+                  "🔍 Load More Leagues"
                 )}
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
+              </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      
+      {/* Join League Dialog */}
+      <JoinLeagueDialog
+        isOpen={joinDialogOpen}
+        onClose={() => setJoinDialogOpen(false)}
+        onSuccess={handleJoinSuccess}
+        prefillCode={selectedLeagueCode}
+      />
     </div>
   );
 }

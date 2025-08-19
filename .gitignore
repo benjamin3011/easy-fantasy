@@ -24,4 +24,7 @@ dist-ssr
 *.sw?
 localhost+2-key.pem
 localhost+2.pem
+192.168.178.178+3-key.pem
+192.168.178.178+3.pem
 .env
+public/firebase-messaging-sw.js

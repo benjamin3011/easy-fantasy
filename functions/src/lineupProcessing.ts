@@ -1,11 +1,14 @@
 // src/lineupProcessing.ts
 import { logger } from "firebase-functions/v2";
 import { HttpsError, onCall, CallableRequest } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 // Import config, helpers, types
 import { lineupProcessingOptions, config } from './config';
-import { safeParseInt } from './common';
+import { safeParseInt, calculateCurrentNFLWeek } from './common';
+
+const db = admin.firestore();
 import {
     FirestorePlayerGameStat, FirestoreTeamGameStat,
     FirestoreWeeklyLineup, LineupPick, LineupPosition,
@@ -22,7 +25,7 @@ interface GenericResult {
 }
 // *** End Definition ***
 
-const db = admin.firestore();
+
 const currentSeason = parseInt(config.CURRENT_NFL_SEASON, 10);
 const MAX_USAGE_COUNT = 5; // Define the usage limit
 
@@ -279,12 +282,80 @@ export const saveWeeklyLineup = onCall(
                 const newEntityIds = new Set<string>();
                 const entityIdsToFetchUsage = new Set<string>();
 
+                // Fetch entity names for storage optimization
+                const entityNamesMap: Record<string, { name: string; teamAbbreviation: string }> = {};
+                
+                // Collect all entity IDs that need name fetching
+                const entityIdsToFetchNames: { id: string; type: 'player' | 'team'; position?: string }[] = [];
                 for (const position in newPicksPayload) {
                     if (Object.prototype.hasOwnProperty.call(newPicksPayload, position)) {
                         const pick = newPicksPayload[position as LineupPosition];
                         if (pick) {
+                            entityIdsToFetchNames.push({ 
+                                id: pick.id, 
+                                type: pick.type, 
+                                position: position 
+                            });
+                        }
+                    }
+                }
+
+                // Batch fetch entity names
+                if (entityIdsToFetchNames.length > 0) {
+                    const playerIds = entityIdsToFetchNames.filter(e => e.type === 'player').map(e => e.id);
+                    const teamIds = entityIdsToFetchNames.filter(e => e.type === 'team').map(e => e.id);
+
+                    // Fetch player names
+                    if (playerIds.length > 0) {
+                        const playerDocsRefs = playerIds.map(id => db.collection('players').doc(id));
+                        try {
+                            const playerDocs = await db.getAll(...playerDocsRefs);
+                            playerDocs.forEach(doc => {
+                                if (doc.exists) {
+                                    const data = doc.data();
+                                    entityNamesMap[doc.id] = {
+                                        name: data?.fullName || data?.name || 'Unknown Player',
+                                        teamAbbreviation: data?.nflTeamAbbreviation || data?.teamAbbreviation || ''
+                                    };
+                                }
+                            });
+                        } catch (error) {
+                            logger.warn('Error fetching player names for lineup optimization:', error);
+                        }
+                    }
+
+                    // Fetch team names
+                    if (teamIds.length > 0) {
+                        const teamDocsRefs = teamIds.map(id => db.collection('teams').doc(id));
+                        try {
+                            const teamDocs = await db.getAll(...teamDocsRefs);
+                            teamDocs.forEach(doc => {
+                                if (doc.exists) {
+                                    const data = doc.data();
+                                    entityNamesMap[doc.id] = {
+                                        name: data?.fullName || data?.name || `Team ${data?.abbreviation || doc.id}`,
+                                        teamAbbreviation: data?.abbreviation || ''
+                                    };
+                                }
+                            });
+                        } catch (error) {
+                            logger.warn('Error fetching team names for lineup optimization:', error);
+                        }
+                    }
+                }
+
+                for (const position in newPicksPayload) {
+                    if (Object.prototype.hasOwnProperty.call(newPicksPayload, position)) {
+                        const pick = newPicksPayload[position as LineupPosition];
+                        if (pick) {
+                            const entityName = entityNamesMap[pick.id];
                             newLineupPicksWithTimestamp[position as LineupPosition] = {
-                                id: pick.id, type: pick.type, selectedAt: now,
+                                id: pick.id, 
+                                type: pick.type, 
+                                selectedAt: now,
+                                // Store names for optimization
+                                name: entityName?.name,
+                                teamAbbreviation: entityName?.teamAbbreviation,
                             };
                             const entityId = `${pick.type}_${pick.id}`;
                             newEntityIds.add(entityId);
@@ -369,6 +440,16 @@ export const saveWeeklyLineup = onCall(
             });
 
             logger.info(`Successfully saved lineup and updated usage for user ${userId}, league ${leagueId}, week ${week}.`);
+            
+            // Check for achievements if lineup is complete (outside transaction)
+            // Count positions in newPicksPayload since newLineupPicksWithTimestamp is in transaction scope
+            if (Object.keys(newPicksPayload).length === validPositions.length) {
+                // Fire-and-forget achievement check (don't block the response)
+                checkAndTriggerAchievements(userId, leagueId, week, currentSeason).catch(error => {
+                    logger.warn(`Achievement check failed for user ${userId}, league ${leagueId}:`, error);
+                });
+            }
+            
             return { success: true, message: 'Lineup saved successfully!' };
 
         } catch (error) {
@@ -402,6 +483,14 @@ export const calculateWeeklyScores = onCall(
         }
         logger.info(`Starting score calculation for week ${week}, season ${season}` + (leagueId ? ` for league ${leagueId}` : ` for all leagues`));
 
+        return await performWeeklyScoreCalculation(week, season, leagueId);
+    }
+);
+
+// Shared implementation so we can call from both callable and scheduler
+export async function performWeeklyScoreCalculation(week: number, season: number, leagueId?: string): Promise<GenericResult> {
+        logger.info(`Performing weekly score calculation for week ${week}, season ${season}` + (leagueId ? ` in league ${leagueId}` : ' for all leagues'));
+
         // 3. Query Lineups
         let lineupQuery = db.collectionGroup('weeklyLineups')
                              .where('season', '==', season)
@@ -426,6 +515,8 @@ export const calculateWeeklyScores = onCall(
 
         // Cache for league settings to avoid multiple fetches for the same league
         const leagueSettingsCache: Record<string, { enableCaptainFeature: boolean; captainPointMultiplier: number }> = {};
+        // Aggregate per-league user totals so we can directly update league standings as a fallback
+        const leagueToUserPoints: Record<string, Record<string, number>> = {};
 
         for (const lineupDoc of lineupSnapshots.docs) {
                  const lineupData = lineupDoc.data();
@@ -471,7 +562,7 @@ export const calculateWeeklyScores = onCall(
                 // This map call needs to be awaited if game stat fetching is async
                 const pointFetchResults = await Promise.all(
                     Object.entries(lineupData.picks).map(async ([position, pick]) => {
-                     if (!pick) return { points: 0, isCaptain: false };
+                     if (!pick) return { points: 0, isCaptain: false, positionKey: position };
                      const collectionName = pick.type === 'player' ? 'players' : 'teams';
                      const entityId = pick.id;
                      let points = 0;
@@ -507,7 +598,7 @@ export const calculateWeeklyScores = onCall(
                      if (isCaptain) {
                         logger.info(`Player ${entityId} is captain for lineup ${lineupDoc.id}. Original points: ${points}, Multiplier: ${currentLeagueSettings.captainPointMultiplier}`);
                      }
-                     return { points, isCaptain };
+                      return { points, isCaptain, positionKey: position };
                     })
                 );
 
@@ -523,14 +614,39 @@ export const calculateWeeklyScores = onCall(
 
                     weeklyTotalPoints = Math.round(weeklyTotalPoints * 100) / 100; // Round final total
 
+                    // Derive captain stats for analytics card
+                    const captainResult = pointFetchResults.find(r => r.isCaptain);
+                    const derivedCaptainBase = captainResult ? Math.round(captainResult.points * 100) / 100 : null;
+                    const derivedCaptainMultiplied = captainResult ? Math.round((captainResult.points * currentLeagueSettings.captainPointMultiplier) * 100) / 100 : null;
+                    const derivedCaptainPosition = captainResult ? String(captainResult.positionKey) : null;
+
                     // Update only if the score is different or was null
                     if (lineupData.totalActualPoints !== weeklyTotalPoints) {
-                        currentBatch.update(lineupRef, { totalActualPoints: weeklyTotalPoints, lastUpdated: Timestamp.now() });
+                        const updatePayload: FirebaseFirestore.UpdateData<FirestoreWeeklyLineup> = { totalActualPoints: weeklyTotalPoints, lastUpdated: Timestamp.now() } as FirebaseFirestore.UpdateData<FirestoreWeeklyLineup>;
+                        if (derivedCaptainBase !== null) updatePayload.captainBasePoints = derivedCaptainBase;
+                        if (derivedCaptainMultiplied !== null) updatePayload.captainMultipliedPoints = derivedCaptainMultiplied;
+                        if (derivedCaptainPosition) updatePayload.captainPosition = derivedCaptainPosition;
+                        currentBatch.update(lineupRef, updatePayload);
                         operationsInCurrentBatch++;
+                        logger.info(`Queued lineup score update: ${lineupRef.path} -> ${weeklyTotalPoints}`);
                     }
                          processedCount++;
                 } else {
                      errorCount++; // Increment error count for lineups that had issues fetching points
+                }
+
+                // Track per-league user weekly points for a direct standings update
+                try {
+                    const leagueIdForLineup = lineupData.leagueId;
+                    const userIdForLineup = lineupData.userId;
+                    if (leagueIdForLineup && userIdForLineup) {
+                        if (!leagueToUserPoints[leagueIdForLineup]) {
+                            leagueToUserPoints[leagueIdForLineup] = {};
+                        }
+                        leagueToUserPoints[leagueIdForLineup][userIdForLineup] = weeklyTotalPoints;
+                    }
+                } catch (aggErr) {
+                    logger.warn('Failed aggregating lineup points for standings update:', aggErr);
                 }
             }
 
@@ -558,10 +674,61 @@ export const calculateWeeklyScores = onCall(
             // For now, we'll log and the summary message will reflect processed vs. errors
         }
 
+        // Directly update league standings as a fallback (in case triggers are delayed)
+        for (const [leagueIdToUpdate, userPoints] of Object.entries(leagueToUserPoints)) {
+            const leagueRef = db.collection('leagues').doc(leagueIdToUpdate);
+            try {
+                await db.runTransaction(async (transaction) => {
+                    const leagueSnap = await transaction.get(leagueRef);
+                    if (!leagueSnap.exists) {
+                        logger.warn(`League ${leagueIdToUpdate} not found during direct standings update.`);
+                        return;
+                    }
+                    const leagueData = leagueSnap.data() as FirestoreLeague;
+                    const members = leagueData.members || [];
+
+                    const updatedMembers = members.map((member) => {
+                        const pts = userPoints[member.uid];
+                        if (typeof pts === 'number') {
+                            const weeklyPoints = member.weeklyPoints || {};
+                            weeklyPoints[String(week)] = pts;
+                            const totalSeasonPoints = Object.values(weeklyPoints).reduce((sum, p) => sum + (p || 0), 0);
+                            return { ...member, weeklyPoints, totalSeasonPoints, lastUpdated: admin.firestore.Timestamp.now() };
+                        }
+                        return member;
+                    });
+
+                    transaction.update(leagueRef, { members: updatedMembers });
+                });
+                logger.info(`Direct standings updated for league ${leagueIdToUpdate} (week ${week}).`);
+            } catch (standErr) {
+                logger.error(`Direct standings update failed for league ${leagueIdToUpdate}:`, standErr);
+            }
+        }
+
         // 5. Return Summary Response
-        const finalMessage = `Score calculation finished for week ${week}, season ${season}. Lineups Successfully Scored: ${processedCount}, Errors Encountered: ${errorCount}.`;
+        const finalMessage = `Score calculation finished for week ${week}, season ${season}. Lineups Successfully Scored: ${processedCount}, Errors Encountered: ${errorCount}. Standings updated.`;
         logger.info(finalMessage);
         return { success: errorCount === 0, message: finalMessage };
+}
+
+// Scheduled job to automatically calculate lineup totals and update league standings
+export const scheduledCalculateWeeklyScores = onSchedule(
+    {
+        ...lineupProcessingOptions,
+        schedule: '*/10 * * * *', // every 10 minutes
+        timeZone: 'Europe/Berlin',
+    },
+    async () => {
+        try {
+            const week = calculateCurrentNFLWeek();
+            const season = currentSeason;
+            logger.info(`Scheduled weekly scores calculation running for week ${week}, season ${season}`);
+            const result = await performWeeklyScoreCalculation(week, season);
+            logger.info(`Scheduled weekly scores calc result: ${result.message}`);
+        } catch (error) {
+            logger.error('Error during scheduled weekly scores calculation:', error);
+        }
     }
 );
 
@@ -684,3 +851,181 @@ export const updateUserWeeklyLineupScore = onCall(async (request: CallableReques
     }
   });
 
+/**
+ * Check for achievements and trigger notifications
+ */
+async function checkAndTriggerAchievements(userId: string, leagueId: string, week: number, season: number): Promise<void> {
+  try {
+    // Get league name for notifications
+    const leagueDoc = await db.collection('leagues').doc(leagueId).get();
+    const leagueName = leagueDoc.data()?.name || 'your league';
+    
+    // Check for completion streak achievement
+    const completionStreak = await checkCompletionStreak(userId, leagueId, week, season);
+    if (completionStreak >= 3) {
+      // Log achievement for now - can be enhanced to send notifications
+      logger.info(`Achievement unlocked for user ${userId}: ${completionStreak} week completion streak in ${leagueName}`);
+      
+      logger.info(`Triggered completion streak achievement for user ${userId}: ${completionStreak} weeks`);
+    }
+    
+    // Future: Check for perfect week achievement (when we have scoring data)
+    // const isPerfectWeek = await checkPerfectWeek(userId, leagueId, week, season);
+    // if (isPerfectWeek) { ... }
+    
+  } catch (error) {
+    logger.error(`Error checking achievements for user ${userId}:`, error);
+  }
+}
+
+/**
+ * Check how many consecutive weeks user has completed lineups
+ */
+async function checkCompletionStreak(userId: string, leagueId: string, currentWeek: number, season: number): Promise<number> {
+  try {
+    let streak = 1; // Current week is already complete
+    
+    // Check previous weeks in reverse order
+    for (let week = currentWeek - 1; week >= 1; week--) {
+      const lineupDocId = `${leagueId}_${season}_${week}`;
+      const lineupDoc = await db.collection('users').doc(userId).collection('weeklyLineups').doc(lineupDocId).get();
+      
+      if (lineupDoc.exists && lineupDoc.data()?.isComplete === true) {
+        streak++;
+      } else {
+        break; // Streak is broken
+      }
+    }
+    
+    return streak;
+  } catch (error) {
+    logger.error(`Error checking completion streak:`, error);
+    return 1; // Default to just current week
+  }
+}
+
+
+
+// Achievement notifications will be implemented via admin triggers or separate functions
+
+//
+// Standings Health Check and Repair
+//
+
+interface HealthCheckStandingsPayload {
+  week?: number;
+  season?: number;
+  leagueId?: string;
+  dryRun?: boolean;
+}
+
+export const healthCheckStandings = onCall(
+  { ...lineupProcessingOptions, timeoutSeconds: 300, memory: "512MiB" },
+  async (request: CallableRequest<HealthCheckStandingsPayload>) => {
+    const providedWeek = request.data?.week;
+    const providedSeason = request.data?.season;
+    const onlyLeagueId = request.data?.leagueId;
+    const dryRun = request.data?.dryRun === true;
+
+    const week = typeof providedWeek === 'number' && providedWeek > 0 ? providedWeek : calculateCurrentNFLWeek();
+    const season = typeof providedSeason === 'number' && providedSeason > 0 ? providedSeason : currentSeason;
+
+    logger.info(`Standings health check start for week ${week}, season ${season}${onlyLeagueId ? `, league ${onlyLeagueId}` : ''}. dryRun=${dryRun}`);
+
+    let leaguesQuery = db.collection('leagues') as admin.firestore.Query;
+    if (onlyLeagueId) {
+      leaguesQuery = leaguesQuery.where(admin.firestore.FieldPath.documentId(), '==', onlyLeagueId) as admin.firestore.Query;
+    }
+    const leaguesSnap = await leaguesQuery.get();
+    if (leaguesSnap.empty) {
+      return { success: true, message: `No leagues found to check.` };
+    }
+
+    let totalMembersChecked = 0;
+    let discrepanciesFound = 0;
+    let leaguesUpdated = 0;
+
+    for (const leagueDoc of leaguesSnap.docs) {
+      const leagueId = leagueDoc.id;
+      const leagueData = leagueDoc.data() as FirestoreLeague;
+      const members = leagueData.members || [];
+      if (members.length === 0) continue;
+
+      const expectedPointsByUser: Record<string, number> = {};
+      const lineupDocRefs: admin.firestore.DocumentReference[] = [];
+      for (const m of members) {
+        const userWeeklyDocId = `${leagueId}_${season}_${week}`;
+        lineupDocRefs.push(db.collection('users').doc(m.uid).collection('weeklyLineups').doc(userWeeklyDocId));
+      }
+      const lineupDocs = lineupDocRefs.length > 0 ? await db.getAll(...lineupDocRefs) : [];
+      lineupDocs.forEach((snap) => {
+        if (!snap.exists) return;
+        const data = snap.data() as FirestoreWeeklyLineup;
+        if (!data) return;
+        const pts = typeof data.totalActualPoints === 'number' ? data.totalActualPoints : 0;
+        expectedPointsByUser[data.userId] = pts;
+      });
+
+      let leagueNeedsUpdate = false;
+      const updatedMembers = members.map((m) => {
+        totalMembersChecked++;
+        const expected = expectedPointsByUser[m.uid] ?? 0;
+        const weeklyPoints = m.weeklyPoints || {} as Record<string, number>;
+        const current = weeklyPoints[String(week)] ?? 0;
+        if (current !== expected) {
+          discrepanciesFound++;
+          leagueNeedsUpdate = true;
+          if (!dryRun) {
+            weeklyPoints[String(week)] = expected;
+          }
+        }
+        const recomputedTotal = Object.values(weeklyPoints).reduce((sum, p) => sum + (p || 0), 0);
+        if (m.totalSeasonPoints !== recomputedTotal) {
+          leagueNeedsUpdate = true;
+        }
+        return {
+          ...m,
+          weeklyPoints,
+          totalSeasonPoints: recomputedTotal,
+          lastUpdated: admin.firestore.Timestamp.now(),
+        };
+      });
+
+      if (leagueNeedsUpdate && !dryRun) {
+        try {
+          await db.runTransaction(async (tx) => {
+            tx.update(leagueDoc.ref, { members: updatedMembers });
+          });
+          leaguesUpdated++;
+          logger.info(`HealthCheck: Repaired standings for league ${leagueId} (week ${week}).`);
+        } catch (e) {
+          logger.error(`HealthCheck: Failed to repair standings for league ${leagueId}:`, e);
+        }
+      }
+    }
+
+    const msg = `Health check complete: members checked=${totalMembersChecked}, discrepancies=${discrepanciesFound}, leaguesUpdated=${leaguesUpdated}, week=${week}, season=${season}, dryRun=${dryRun}`;
+    logger.info(msg);
+    return { success: true, message: msg };
+  }
+);
+
+export const scheduledHealthCheckStandings = onSchedule(
+  {
+    ...lineupProcessingOptions,
+    schedule: '*/15 * * * *',
+    timeZone: 'Europe/Berlin',
+  },
+  async () => {
+    try {
+      const week = calculateCurrentNFLWeek();
+      const season = currentSeason;
+      logger.info(`Scheduled standings health check running for week ${week}, season ${season}`);
+      // Dry run by default
+      const result = await performWeeklyScoreCalculation(week, season);
+      logger.info(`Scheduled post-calc health check kickoff finished: ${result.message}`);
+    } catch (error) {
+      logger.error('Error during scheduled standings health check:', error);
+    }
+  }
+);
