@@ -216,7 +216,7 @@ const SimpleLineupSlot: React.FC<SimpleLineupSlotProps> = ({
                           ? 'text-blue-600 dark:text-blue-400'
                           : 'text-green-600 dark:text-green-400'
                       }`}>
-                        {displayPoints.points.toFixed(1)}
+                        {displayPoints.points.toFixed(2)}
                       </div>
                     </>
                   );

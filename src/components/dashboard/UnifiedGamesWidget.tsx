@@ -164,6 +164,8 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
   const [loadingScoringPlays, setLoadingScoringPlays] = useState<Set<string>>(new Set());
   const [scoringPlaysCache, setScoringPlaysCache] = useState<Map<string, ProcessedScoringPlay[]>>(new Map());
   const [scoringPlaysCount, setScoringPlaysCount] = useState<Map<string, number>>(new Map());
+  // Track how many plays the user had seen last time per game to insert a "since last open" marker
+  const [seenPlaysCount, setSeenPlaysCount] = useState<Map<string, number>>(new Map());
   const gamesSnapshotRef = useRef<GameWithPlayers[]>([]);
   // Grace period to avoid flicker between 0-0 and first fetched scores
   const [initialScoreSettleDone, setInitialScoreSettleDone] = useState<boolean>(false);
@@ -172,6 +174,33 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
   useEffect(() => {
     gamesSnapshotRef.current = gamesWithPlayers;
   }, [gamesWithPlayers]);
+
+  // Load seen counts from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('ef_seen_scoring_counts');
+      if (raw) {
+        const obj = JSON.parse(raw) as Record<string, number>;
+        const map = new Map<string, number>();
+        Object.entries(obj).forEach(([k, v]) => map.set(k, typeof v === 'number' ? v : Number(v) || 0));
+        setSeenPlaysCount(map);
+      }
+    } catch (e) {
+      console.warn('Failed to load seen scoring counts:', e);
+    }
+  }, []);
+
+  const persistSeenCounts = useCallback((map: Map<string, number>) => {
+    try {
+      const obj: Record<string, number> = {};
+      map.forEach((v, k) => {
+        obj[k] = v;
+      });
+      localStorage.setItem('ef_seen_scoring_counts', JSON.stringify(obj));
+    } catch (e) {
+      console.warn('Failed to persist seen scoring counts:', e);
+    }
+  }, []);
 
   // Use TanStack Query for weekly schedule
   const { data: scheduleData } = useQuery({
@@ -727,6 +756,15 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
 
   const toggleScoringPlaysExpansion = async (gameId: string) => {
     const isExpanding = expandedScoringPlays !== gameId;
+    // If collapsing, mark all current plays as seen
+    if (!isExpanding) {
+      const current = scoringPlaysCache.get(gameId) || [];
+      const updated = new Map(seenPlaysCount);
+      updated.set(gameId, current.length);
+      setSeenPlaysCount(updated);
+      persistSeenCounts(updated);
+    }
+
     setExpandedScoringPlays(isExpanding ? gameId : null);
     
     // Lazy load scoring plays when expanding
@@ -844,10 +882,15 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
                   </div>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-xs text-gray-500 dark:text-gray-400">
-                      {game.gameScore && game.gameStatus === 'live' && game.gameScore.quarter && game.gameScore.timeRemaining 
-                        ? `Q${game.gameScore.quarter} ${game.gameScore.timeRemaining}`
-                        : formatGameTime(game.gameTime_epoch)
-                      }
+                      {game.gameScore && game.gameStatus === 'live' && game.gameScore.timeRemaining ? (
+                        (() => {
+                          const q = game.gameScore?.quarter;
+                          const qLabel = q === 5 ? 'OT' : (q ? `Q${q}` : '');
+                          return qLabel ? `${qLabel} ${game.gameScore.timeRemaining}` : game.gameScore.timeRemaining;
+                        })()
+                      ) : (
+                        formatGameTime(game.gameTime_epoch)
+                      )}
                     </span>
                     {getGameStatusBadge(game)}
                   </div>
@@ -886,7 +929,7 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
                               {isLoadingStats && player.currentPoints === 0 ? (
                                 <span className="animate-pulse text-gray-400">Loading...</span>
                               ) : (
-                                `${player.currentPoints.toFixed(1)} pts`
+                                `${player.currentPoints.toFixed(2)} pts`
                               )}
                             </span>
                           </div>
@@ -926,51 +969,61 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
                           No scoring plays yet.
                         </div>
                       ) : (
-                        cachedScoringPlays.map((play, index) => (
-                        <div
-                          key={`${play.playerId}-${play.timestamp}-${index}`}
-                          className="text-xs text-gray-600 dark:text-gray-400 p-3 border-l-2 border-green-300 dark:border-green-600 ml-2 bg-green-50 dark:bg-green-900/10 rounded-r-lg"
-                        >
-                          <div className="flex items-start gap-2">
-                            {/* Play Icon */}
-                            <div className="text-sm flex-shrink-0 mt-0.5">
-                              {getPlayIcon(play.scoreType)}
+                        (() => {
+                          const previouslySeen = seenPlaysCount.get(game.gameID) ?? 0;
+                          const currentCount = cachedScoringPlays.length;
+                          const newCount = Math.max(0, currentCount - previouslySeen);
+                          return cachedScoringPlays.map((play, index) => (
+                            <div key={`${play.playerId}-${play.timestamp}-${index}`}>
+                              {/* New plays */}
+                              <div
+                                className={`text-xs text-gray-600 dark:text-gray-400 p-3 border-l-2 ml-2 rounded-r-lg ${index < newCount ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-600 dark:bg-emerald-900/10' : 'border-green-300 bg-green-50 dark:border-green-600 dark:bg-green-900/10'}`}
+                              >
+                                <div className="flex items-start gap-2">
+                                  <div className="text-sm flex-shrink-0 mt-0.5">
+                                    {getPlayIcon(play.scoreType)}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-medium text-green-800 dark:text-green-200">
+                                        {play.playerName}
+                                      </span>
+                                      {play.isCaptain && (
+                                        <span className="text-xs font-medium text-yellow-600 dark:text-yellow-400 px-1.5 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 rounded">
+                                          ⭐ Captain
+                                        </span>
+                                      )}
+                                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                                        {play.teamAbbreviation}
+                                        {play.opponent && ` vs ${play.opponent}`}
+                                      </span>
+                                    </div>
+                                    <div className="text-sm text-green-700 dark:text-green-300 mt-1 font-medium">
+                                      {play.playDescription}
+                                    </div>
+                                    <div className="flex items-center gap-3 mt-2 text-xs">
+                                      <span className="text-gray-500 dark:text-gray-400">
+                                        {play.period} {play.time}
+                                      </span>
+                                      <span className="text-green-600 dark:text-green-400 font-bold">
+                                        +{play.fantasyPoints.toFixed(2)} pts
+                                        {play.isCaptain && <span className="ml-1">⭐</span>}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                              {/* Divider after new items */}
+                              {newCount > 0 && index === newCount - 1 && (
+                                <div className="ml-2 my-2 flex items-center gap-2">
+                                  <div className="h-px flex-1 bg-gray-200 dark:bg-gray-700" />
+                                  <span className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Since last open</span>
+                                  <div className="h-px flex-1 bg-gray-200 dark:bg-gray-700" />
+                                </div>
+                              )}
                             </div>
-
-                            {/* Play Details */}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-medium text-green-800 dark:text-green-200">
-                                  {play.playerName}
-                                </span>
-                                {play.isCaptain && (
-                                  <span className="text-xs font-medium text-yellow-600 dark:text-yellow-400 px-1.5 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 rounded">
-                                    ⭐ Captain
-                                  </span>
-                                )}
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                  {play.teamAbbreviation}
-                                  {play.opponent && ` vs ${play.opponent}`}
-                                </span>
-                              </div>
-
-                              <div className="text-sm text-green-700 dark:text-green-300 mt-1 font-medium">
-                                {play.playDescription}
-                              </div>
-
-                              <div className="flex items-center gap-3 mt-2 text-xs">
-                                <span className="text-gray-500 dark:text-gray-400">
-                                  {play.period} {play.time}
-                                </span>
-                                <span className="text-green-600 dark:text-green-400 font-bold">
-                                  +{play.fantasyPoints.toFixed(1)} pts
-                                  {play.isCaptain && <span className="ml-1">⭐</span>}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                          </div>
-                        ))
+                          ));
+                        })()
                       )}
                     </div>
                   )}

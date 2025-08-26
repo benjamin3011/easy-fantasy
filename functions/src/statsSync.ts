@@ -119,10 +119,40 @@ async function processAndStoreGameScore(gameId: string, week: number, season: nu
     // Only include quarter if we have a valid value and game is not final
     const currentPeriod = apiBody.lineScore?.currentPeriod || apiBody.currentPeriod;
     if (currentPeriod && currentPeriod !== 'Final' && !currentPeriod.toLowerCase().includes('final')) {
-      // Try to extract quarter number from currentPeriod (e.g., "Q1" -> 1)
-      const quarterMatch = currentPeriod.match(/Q(\d+)/);
-      if (quarterMatch) {
-        gameScoreDoc.quarter = parseInt(quarterMatch[1], 10);
+      // Normalize various formats into a quarter number (1..4). Treat OT/Overtime as 5.
+      const lower = String(currentPeriod).toLowerCase();
+      let quarterNumber: number | undefined;
+
+      // Case: "Q1", "Q 2"
+      const qMatch = lower.match(/q\s*(\d+)/);
+      if (qMatch) {
+        quarterNumber = parseInt(qMatch[1], 10);
+      }
+
+      // Case: ordinal words: "1st", "2nd", "3rd", "4th"
+      if (quarterNumber === undefined) {
+        const ordMap: Record<string, number> = { '1st': 1, '2nd': 2, '3rd': 3, '4th': 4 };
+        const ordMatch = lower.match(/\b(1st|2nd|3rd|4th)\b/);
+        if (ordMatch) {
+          quarterNumber = ordMap[ordMatch[1]];
+        }
+      }
+
+      // Case: just a digit 1-4
+      if (quarterNumber === undefined) {
+        const digitMatch = lower.match(/\b([1-4])\b/);
+        if (digitMatch) {
+          quarterNumber = parseInt(digitMatch[1], 10);
+        }
+      }
+
+      // Case: Overtime
+      if (quarterNumber === undefined && (lower.includes('ot') || lower.includes('overtime'))) {
+        quarterNumber = 5; // Will be displayed as OT on frontend
+      }
+
+      if (quarterNumber !== undefined && !Number.isNaN(quarterNumber)) {
+        gameScoreDoc.quarter = quarterNumber;
       }
     }
 

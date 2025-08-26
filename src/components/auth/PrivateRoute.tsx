@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
+import { SkeletonPage } from '../ui/skeleton/SkeletonLoader';
 
 export default function PrivateRoute({
   children
@@ -11,7 +12,11 @@ export default function PrivateRoute({
   const location = useLocation();
 
   if (loading) {
-    return <div>Loading…</div>;
+    return (
+      <div className="p-4">
+        <SkeletonPage type="dashboard" />
+      </div>
+    );
   }
 
   if (!user) {

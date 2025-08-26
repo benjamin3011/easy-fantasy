@@ -99,7 +99,17 @@ export default function LeagueDetail() {
     }
   }, [league]);
 
-  if (!id) return null;
+  if (!id) {
+    return (
+      <div className="container mx-auto px-4 py-6">
+        <ComponentCard title="League">
+          <div className="p-6 text-center text-sm text-gray-600 dark:text-gray-300">
+            Missing league id in route.
+          </div>
+        </ComponentCard>
+      </div>
+    );
+  }
   
   if (loading) {
     return (

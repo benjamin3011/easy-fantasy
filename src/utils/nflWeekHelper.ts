@@ -1,8 +1,7 @@
 // nflWeekHelper.ts
 
 // Configuration for current season (should match backend config)
-const CURRENT_SEASON_TYPE = "pre"; // "pre" for pre-season, "reg" for regular season
-const PRE_SEASON_START_DATE_REF = new Date('2025-08-06'); // First Wednesday of pre-season Week 1
+const CURRENT_SEASON_TYPE = "reg"; // "pre" for pre-season, "reg" for regular season
 const SEASON_START_DATE_REF = new Date('2025-09-03'); // First Wednesday of the regular season
 
 /**
@@ -10,10 +9,8 @@ const SEASON_START_DATE_REF = new Date('2025-09-03'); // First Wednesday of the 
  * This matches the backend calculateCurrentNFLWeek function
  */
 export const calculateCurrentNFLWeek = (): number => {
-  // Use appropriate start date based on season type
-  const seasonStartDate = CURRENT_SEASON_TYPE === "pre" 
-    ? PRE_SEASON_START_DATE_REF 
-    : SEASON_START_DATE_REF;
+  // Use regular season start date (since CURRENT_SEASON_TYPE is "reg")
+  const seasonStartDate = SEASON_START_DATE_REF;
     
   const today = new Date();
 
@@ -25,8 +22,8 @@ export const calculateCurrentNFLWeek = (): number => {
   // Each NFL week is 7 days (Wed-Tue), divide by 7 to get the current week
   const week = Math.floor(daysDiff / 7) + 1; // Add 1 because week numbers are 1-based
 
-  // Clamp the week number based on season type
-  const maxWeeks = CURRENT_SEASON_TYPE === "pre" ? 4 : 18; // 4 preseason weeks, 18 regular season weeks
+  // Clamp the week number for regular season (18 weeks)
+  const maxWeeks = 18; // Regular season weeks
   return Math.max(1, Math.min(week, maxWeeks));
 };
 
@@ -41,7 +38,7 @@ export const getCurrentSeasonType = (): string => {
  * Check if we're currently in preseason
  */
 export const isPreseason = (): boolean => {
-  return CURRENT_SEASON_TYPE === "pre";
+  return false; // We're in regular season
 };
 
 /**
@@ -49,7 +46,7 @@ export const isPreseason = (): boolean => {
  * For debugging and display purposes
  */
 export const normalizeWeek = (week: number): number => {
-  return Math.max(1, Math.min(week, isPreseason() ? 4 : 18));
+  return Math.max(1, Math.min(week, 18)); // Regular season: 18 weeks
 };
 
   

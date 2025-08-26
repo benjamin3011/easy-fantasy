@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
-import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching';
-import { registerRoute } from 'workbox-routing';
+import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching';
+import { registerRoute, NavigationRoute } from 'workbox-routing';
 import { NetworkFirst, CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
 
@@ -104,22 +104,7 @@ registerRoute(
 );
 
 // Cache user leagues
-registerRoute(
-  ({ request }) => {
-    return request.url.includes('userLeagues') || 
-           request.url.includes('leagues');
-  },
-  new NetworkFirst({
-    cacheName: 'leagues-cache-v2',
-    networkTimeoutSeconds: 5,
-    plugins: [
-      new ExpirationPlugin({
-        maxEntries: 10,
-        maxAgeSeconds: 60 * 60 * 24, // 24 hours
-      }),
-    ],
-  })
-);
+// NOTE: Removed overly-broad 'leagues' path caching to avoid intercepting SPA navigations
 
 // Cache lineup data
 registerRoute(
@@ -156,6 +141,19 @@ registerRoute(
     ],
   })
 );
+
+// App Shell-style routing: serve index.html for navigation requests
+// Exclude common asset and API paths
+const navigationHandler = createHandlerBoundToURL('/index.html');
+const navigationRoute = new NavigationRoute(navigationHandler, {
+  denylist: [
+    /\\.(?:png|jpg|jpeg|svg|css|js|json|map)$/,
+    /^\/assets\//,
+    /^\/api\//,
+    /^\/__\//,
+  ],
+});
+registerRoute(navigationRoute);
 
 // eslint-disable-next-line no-undef
 if (typeof self !== 'undefined' && (self as any).ENV !== 'production') console.log('SW: Custom service worker loaded'); 

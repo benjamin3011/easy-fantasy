@@ -136,12 +136,12 @@ export default function ModernLeaderboard({ members, leagueId, useMockData = fal
   };
 
   const getWeeklyChange = (member: Member) => {
-    const thisWeek = member.weeklyPoints?.[currentWeek] ?? 0;
-    const lastWeek = member.weeklyPoints?.[currentWeek - 1] ?? 0;
+    const thisWeek = Math.round((member.weeklyPoints?.[currentWeek] ?? 0) * 100) / 100;
+    const lastWeek = Math.round((member.weeklyPoints?.[currentWeek - 1] ?? 0) * 100) / 100;
     
     if (!lastWeek) return null;
     
-    const change = thisWeek - lastWeek;
+    const change = Math.round((thisWeek - lastWeek) * 100) / 100;
     if (change > 0) {
       return { value: `+${change}`, color: 'text-green-600 dark:text-green-400', icon: '📈' };
     } else if (change < 0) {
@@ -155,7 +155,7 @@ export default function ModernLeaderboard({ members, leagueId, useMockData = fal
     if (!member.weeklyPoints) return 0;
     const weeks = Object.keys(member.weeklyPoints).length;
     if (weeks === 0) return 0;
-    return Math.round((member.totalSeasonPoints || 0) / weeks * 10) / 10;
+    return Math.round((member.totalSeasonPoints || 0) / weeks * 100) / 100;
   };
 
   if (dataToUse.length === 0) {
@@ -177,7 +177,7 @@ export default function ModernLeaderboard({ members, leagueId, useMockData = fal
       {displayMembers.map((member, index) => {
         const position = index + 1;
         const badge = getRankBadge(position);
-        const thisWeek = member.weeklyPoints?.[currentWeek] ?? 0;
+        const thisWeek = Math.round((member.weeklyPoints?.[currentWeek] ?? 0) * 100) / 100;
         const weeklyChange = getWeeklyChange(member);
         const avgPoints = getAveragePoints(member);
 
@@ -206,7 +206,7 @@ export default function ModernLeaderboard({ members, leagueId, useMockData = fal
                 {/* Total Points */}
                 <div className="text-right pl-3">
                   <div className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">
-                    {member.totalSeasonPoints || 0}
+                    {Math.round((member.totalSeasonPoints || 0) * 100) / 100}
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
                     total points
@@ -313,7 +313,7 @@ export default function ModernLeaderboard({ members, leagueId, useMockData = fal
                   <div className="text-right min-w-[100px]">
                     <div className="text-sm text-gray-500 dark:text-gray-400">Total Points</div>
                     <div className="text-3xl font-bold text-gray-900 dark:text-white tabular-nums">
-                      {member.totalSeasonPoints || 0}
+                      {Math.round((member.totalSeasonPoints || 0) * 100) / 100}
                     </div>
                   </div>
                 </div>

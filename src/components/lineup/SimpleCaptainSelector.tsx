@@ -219,7 +219,7 @@ const SimpleCaptainSelector: React.FC<SimpleCaptainSelectorProps> = React.memo((
                             : 'text-blue-600 dark:text-blue-400'
                           : 'text-green-600 dark:text-green-400'
                       }`}>
-                        {displayPoints.points.toFixed(1)} {baseLabel}
+                        {displayPoints.points.toFixed(2)} {baseLabel}
                       </div>
                       <div className="text-xs text-yellow-600 dark:text-yellow-400 h-4 flex items-center justify-end">
                         {displayPoints.isCaptain && (
@@ -230,7 +230,7 @@ const SimpleCaptainSelector: React.FC<SimpleCaptainSelectorProps> = React.memo((
                         )}
                         {displayPoints.isCaptain && displayPoints.type === 'ppg' && (
                           <span className="ml-2">
-                            +{(entity.actualPPG * (captainPointMultiplier - 1)).toFixed(1)} bonus
+                            +{(entity.actualPPG * (captainPointMultiplier - 1)).toFixed(2)} bonus
                           </span>
                         )}
                       </div>

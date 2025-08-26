@@ -3,7 +3,7 @@ layer(base);
 
 @import "tailwindcss";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (.dark &);
 
 @theme {
   --font-*: initial;
@@ -400,6 +400,16 @@ layer(base);
   .pwa-viewport-fix {
     /* Prevents zoom on iOS Safari */
     touch-action: manipulation;
+  }
+
+  /* Route fade-in animation to smooth transitions on iOS */
+  .animate-route-fade {
+    animation: route-fade 180ms ease-out;
+  }
+
+  @keyframes route-fade {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
   }
   
   /* Native iOS-style backdrop blur */

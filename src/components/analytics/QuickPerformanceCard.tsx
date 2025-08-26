@@ -127,7 +127,7 @@ export default function QuickPerformanceCard({ leagueId }: QuickPerformanceCardP
                   This Week
                 </div>
                 <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">
-                  {performanceData.currentWeekPoints} pts
+                  {performanceData.currentWeekPoints.toFixed(2)} pts
                 </div>
               </div>
               <div className="text-2xl">{trendDisplay.icon}</div>
@@ -142,7 +142,7 @@ export default function QuickPerformanceCard({ leagueId }: QuickPerformanceCardP
               Recent Average ({performanceData.weeksPlayed} weeks)
             </div>
             <div className="text-xl font-semibold text-gray-900 dark:text-white">
-              {performanceData.recentAverage} pts
+              {performanceData.recentAverage.toFixed(2)} pts
             </div>
           </div>
           <div className={`text-sm font-medium ${trendDisplay.color}`}>

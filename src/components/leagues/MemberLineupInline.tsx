@@ -113,44 +113,50 @@ export default function MemberLineupInline({
         // Check entity visibility for progressive reveal
         let isVisible = true;
         let timeUntilReveal: number | null = null;
-        
-        if (weeklySchedule && pick.teamAbbreviation) {
-          // Find the game ID for this team from the weekly schedule
-          const teamGame = weeklySchedule.games.find((game: GameInfoFromSchedule) => 
-            game.home === pick.teamAbbreviation || game.away === pick.teamAbbreviation
-          );
-          
-          if (teamGame) {
-            // Convert to the expected type structure for visibility service
-            const visibilitySchedule = {
-              season: weeklySchedule.season,
-              week: weeklySchedule.week,
-              games: weeklySchedule.games.map(game => ({
-                gameID: game.gameID,
-                seasonType: '', // Not available in GameInfoFromSchedule
-                week: '', // Not available in GameInfoFromSchedule  
-                gameDate: '', // Not available in GameInfoFromSchedule
-                gameTime_epoch: String(game.gameTime_epoch), // Convert to string
-                teamIDHome: game.teamIDHome,
-                teamIDAway: game.teamIDAway,
-                home: game.home || '',
-                away: game.away || '',
-                gameStatus: game.gameStatus || '',
-                gameStatusText: game.gameStatus || '' // Use gameStatus as fallback
-              })),
-              lastUpdated: new Date()
-            };
-            
-            const visibilityResult = checkEntityVisibility(
-              pick.id,
-              pick.type,
-              teamGame.gameID,
-              visibilitySchedule
+
+        if (!isViewingOwnLineup) {
+          if (weeklySchedule && pick.teamAbbreviation) {
+            // Find the game ID for this team from the weekly schedule
+            const teamGame = weeklySchedule.games.find((game: GameInfoFromSchedule) => 
+              game.home === pick.teamAbbreviation || game.away === pick.teamAbbreviation
             );
             
-            isVisible = visibilityResult.isVisible;
-            timeUntilReveal = visibilityResult.timeUntilReveal ?? null;
+            if (teamGame) {
+              // Convert to the expected type structure for visibility service
+              const visibilitySchedule = {
+                season: weeklySchedule.season,
+                week: weeklySchedule.week,
+                games: weeklySchedule.games.map(game => ({
+                  gameID: game.gameID,
+                  seasonType: '', // Not available in GameInfoFromSchedule
+                  week: '', // Not available in GameInfoFromSchedule  
+                  gameDate: '', // Not available in GameInfoFromSchedule
+                  gameTime_epoch: String(game.gameTime_epoch), // Convert to string
+                  teamIDHome: game.teamIDHome,
+                  teamIDAway: game.teamIDAway,
+                  home: game.home || '',
+                  away: game.away || '',
+                  gameStatus: game.gameStatus || '',
+                  gameStatusText: game.gameStatus || '' // Use gameStatus as fallback
+                })),
+                lastUpdated: new Date()
+              };
+              
+              const visibilityResult = checkEntityVisibility(
+                pick.id,
+                pick.type,
+                teamGame.gameID,
+                visibilitySchedule
+              );
+              
+              isVisible = visibilityResult.isVisible;
+              timeUntilReveal = visibilityResult.timeUntilReveal ?? null;
+            }
           }
+        } else {
+          // Always show own lineup
+          isVisible = true;
+          timeUntilReveal = null;
         }
 
         try {
@@ -306,7 +312,7 @@ export default function MemberLineupInline({
                         const finalPoints = slot.isCaptain && slot.entity.type === 'player' 
                           ? basePoints * 1.5 
                           : basePoints;
-                        return finalPoints.toFixed(1);
+                        return finalPoints.toFixed(2);
                       })()}
                       {slot.isCaptain && (
                         <span className="ml-1 text-xs">⭐</span>

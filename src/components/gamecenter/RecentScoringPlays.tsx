@@ -318,7 +318,7 @@ const RecentScoringPlays: React.FC<RecentScoringPlaysProps> = ({
             <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400">
               <span>{play.period} {play.time}</span>
               <span className="text-green-600 dark:text-green-400 font-medium">
-                +{play.fantasyPoints.toFixed(1)} pts
+                +{play.fantasyPoints.toFixed(2)} pts
                 {play.isCaptain && <span className="ml-1">⭐</span>}
               </span>
               {play.leagues.length > 1 && (

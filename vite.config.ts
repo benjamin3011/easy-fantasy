@@ -5,8 +5,8 @@ import svgr from 'vite-plugin-svgr'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  // Add base configuration for proper asset loading
-  base: './',
+  // Use absolute base so chunks load from root in nested routes
+  base: '/',
   server: {
     host: '0.0.0.0', // Changed from true to explicit IP for better ngrok compatibility
     port: 4173,
@@ -98,8 +98,8 @@ export default defineConfig({
       manifest: {
         name: 'Easy Fantasy',
         short_name: 'Easy Fantasy',
-        start_url: './',  
-        scope: './',      
+        start_url: '/',  
+        scope: '/',      
         display: 'standalone',
         background_color: '#161950',
         theme_color: '#0B345A',

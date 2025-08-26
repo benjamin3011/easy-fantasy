@@ -6,7 +6,7 @@
  *      • onCreate  – open "Create League" dialog
  *      • onJoin    – open "Join League" dialog
  * ------------------------------------------------------------------ */
-import { Link } from "react-router";
+import { useNavigate } from "react-router";
 import Button from "../ui/button/Button";
 import { League } from "../../utils/leagues";
 import { useAuth } from "../../context/AuthContext";
@@ -30,6 +30,7 @@ export default function LeagueList({
 }: Props) {
   const { user } = useAuth();
   const currentUserId = user?.uid;
+  const navigate = useNavigate();
 
   // Helper function to check if user is admin
   const isAdmin = (league: League) => currentUserId && league.adminUid === currentUserId;
@@ -134,11 +135,22 @@ export default function LeagueList({
                       </div>
                     </div>
                     <div className="ml-4">
-                      <Link to={`/leagues/${league.id}`}>
-                        <button className="shadow-theme-xs inline-flex h-6 items-center justify-center rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200">
-                          View
-                        </button>
-                      </Link>
+                      <button
+                        type="button"
+                        onMouseEnter={() => {
+                          // Preload LeagueDetail chunk on hover
+                          import('../../pages/LeagueDetail');
+                        }}
+                        onTouchStart={() => {
+                          // Preload LeagueDetail chunk on touch
+                          import('../../pages/LeagueDetail');
+                        }}
+                        onClick={() => navigate(`/leagues/${league.id}`)}
+                        className="shadow-theme-xs inline-flex h-6 items-center justify-center rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.03] dark:hover:text-gray-200"
+                        aria-label={`View league ${league.name}`}
+                      >
+                        View
+                      </button>
                     </div>
                   </div>
                 </div>

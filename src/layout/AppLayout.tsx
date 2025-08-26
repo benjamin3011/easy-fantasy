@@ -1,5 +1,5 @@
 import { SidebarProvider, useSidebar } from "../context/SidebarContext";
-import { Outlet } from "react-router";
+import { Outlet, useLocation } from "react-router";
 import AppHeader from "./AppHeader";
 import Backdrop from "./Backdrop";
 import AppSidebar from "./AppSidebar";
@@ -8,6 +8,7 @@ import MobileBottomTabBar from "../components/layout/MobileBottomTabBar";
 
 const LayoutContent: React.FC = () => {
   const { isExpanded, isHovered, isMobileOpen } = useSidebar();
+  const location = useLocation();
 
   return (
     <div className="min-h-screen xl:flex">
@@ -22,7 +23,9 @@ const LayoutContent: React.FC = () => {
       >
         <AppHeader />
         <div className="relative mx-auto max-w-(--breakpoint-2xl)">
-          <Outlet />
+          <div key={location.pathname} className="animate-route-fade">
+            <Outlet />
+          </div>
         </div>
       </div>
       

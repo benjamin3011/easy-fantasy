@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router";
 import { Suspense, lazy } from "react";
 import PWAUpdateNotification from "./components/common/PWAUpdateNotification";
 import { AuthProvider } from "./context/AuthContext";
@@ -42,13 +42,12 @@ const PageLoadingFallback = () => (
 );
 
 function App() {
-
   return (
     <ErrorBoundary>
       <AuthProvider>
         <LeagueProvider>
           <HeaderProvider>
-            <Router>
+            <BrowserRouter>
             <Routes>
             {/* private */}
             <Route element={<PrivateRoute><AppLayout /></PrivateRoute>}>
@@ -113,7 +112,7 @@ function App() {
             <Route path="/signup" element={<SignUp />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             </Routes>
-            </Router>
+            </BrowserRouter>
             <PWAUpdateNotification />
             <Toaster />
             <PWAPrompt />

@@ -12,7 +12,6 @@ import { getNotificationDeepLink, getNotificationTypeStyles, formatNotificationT
 
 export default function NotificationDropdown() {
   const [isOpen, setIsOpen] = useState(false);
-  const [notifying, setNotifying] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -114,7 +113,7 @@ export default function NotificationDropdown() {
   function toggleDropdown() { setIsOpen(!isOpen); }
   function closeDropdown() { setIsOpen(false); }
 
-  const handleClick = () => { toggleDropdown(); setNotifying(false); };
+  const handleClick = () => { toggleDropdown(); };
 
   // Shared content for both dropdown and bottom sheet
   const notificationContent = (
@@ -185,7 +184,7 @@ export default function NotificationDropdown() {
         className="relative flex items-center justify-center text-gray-500 transition-colors bg-white border border-gray-200 rounded-full dropdown-toggle hover:text-gray-700 h-11 w-11 hover:bg-gray-100 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
         onClick={handleClick}
       >
-        <span className={`absolute right-0 top-0.5 z-10 h-2 w-2 rounded-full bg-orange-400 ${(!notifying || unreadCount === 0) ? "hidden" : "flex"}`}>
+        <span className={`absolute right-0 top-0.5 z-10 h-2 w-2 rounded-full bg-orange-400 ${unreadCount > 0 ? "flex" : "hidden"}`}>
           <span className="absolute inline-flex w-full h-full bg-orange-400 rounded-full opacity-75 animate-ping"></span>
         </span>
         <svg

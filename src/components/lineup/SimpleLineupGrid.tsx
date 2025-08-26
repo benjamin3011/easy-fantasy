@@ -75,6 +75,11 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
     currentSeason || parseInt(APP_CONFIG.CURRENT_NFL_SEASON), 
     lineupEntities
   );
+
+  // Compute missing picks for sticky banner
+  const filledSlots = useMemo(() => Object.values(lineup || {}).filter((e) => !!e).length, [lineup]);
+  const totalSlots = POSITIONS_CONFIG.length;
+  const missingCount = totalSlots - filledSlots;
   
   // Show loading overlay while lineup is being loaded
   if (isLoadingLineup) {
@@ -116,6 +121,20 @@ const SimpleLineupGrid: React.FC<SimpleLineupGridProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column - Lineup Slots */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Sticky picks-left banner */}
+          {missingCount > 0 && (
+            <div className="sticky top-0 z-20 lg:hidden">
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
+                <div className="text-sm font-medium">
+                  {missingCount} pick{missingCount === 1 ? '' : 's'} left to complete your lineup
+                </div>
+                <div className="text-xs text-amber-700 dark:text-amber-300">
+                  Use Optimize to auto-fill missing slots
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Quick Actions */}
           <SimpleQuickActions 
             currentWeek={weekForActions}

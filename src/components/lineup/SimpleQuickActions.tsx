@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useLineupStore } from '../../store/lineupStore';
-import { PositionKey, SelectableEntity, SelectableTeam } from '../../types/lineup';
+import { PositionKey, SelectableEntity } from '../../types/lineup';
 import { POSITIONS_CONFIG } from '../../config/positions';
 import { 
   fetchSelectablePlayers, 
@@ -49,37 +49,29 @@ const getEffectivePPG = (entity: SelectableEntity): number => {
   
   // Fallback 3: Team defaults with position-specific scoring
   if (entity.entityType === 'team') {
-    // Check if team has any season fantasy points for specific positions
     const seasonFP_Defense = entity.seasonFP_Defense || 0;
     const seasonFP_Passing = entity.seasonFP_Passing || 0;
     const seasonFP_Rushing = entity.seasonFP_Rushing || 0;
     const seasonFP_ST = entity.seasonFP_ST || 0;
     
-    // Use season stats if available, assume 17 games
     if (seasonFP_Defense > 0) return seasonFP_Defense / 17;
     if (seasonFP_Passing > 0) return seasonFP_Passing / 17;
     if (seasonFP_Rushing > 0) return seasonFP_Rushing / 17;
     if (seasonFP_ST > 0) return seasonFP_ST / 17;
     
-    // Use team record to estimate quality if available
     if (entity.seasonRecord) {
       const wins = Number(entity.seasonRecord.wins) || 0;
       const losses = Number(entity.seasonRecord.losses) || 0;
       const ties = Number(entity.seasonRecord.ties) || 0;
       const totalGames = wins + losses + ties;
-      
       if (totalGames > 0) {
         const winPct = wins / totalGames;
-        // Better teams get higher baseline scores (6-12 range)
         return 6 + (winPct * 6);
       }
     }
-    
-    // Final fallback: Basic team unit default
     return 8;
   }
-  
-  return 1; // Minimum fallback
+  return 1;
 };
 
 const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
@@ -92,18 +84,68 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
     weeklySchedule, 
     userId, 
     leagueId,
+    designatedCaptainSlotKey,
+    selectedCaptainPlayerIdForSave,
     setLineup,
+    setCaptain,
     setSaveStatus
   } = useLineupStore();
   
   const [isRandomizing, setIsRandomizing] = useState(false);
   const [isCopyingFromLastWeek, setIsCopyingFromLastWeek] = useState(false);
+  const [undoSnapshot, setUndoSnapshot] = useState<{
+    lineup: Record<PositionKey, SelectableEntity | undefined>;
+    captainSlot: PositionKey | null;
+    captainId: string | null;
+  } | null>(null);
+  const [showUndo, setShowUndo] = useState(false);
+  const [undoTimeoutId, setUndoTimeoutId] = useState<number | null>(null);
 
   const filledSlots = Object.values(lineup).filter(entity => entity !== undefined).length;
   const totalSlots = POSITIONS_CONFIG.length;
+  const missingCount = totalSlots - filledSlots;
   const hasSelections = filledSlots > 0;
   const isWeek1 = currentWeek === 1;
   const isDisabled = isRandomizing || isCopyingFromLastWeek;
+
+  const getBestCaptainCandidate = (
+    lm: Partial<Record<PositionKey, SelectableEntity | undefined>>
+  ): { slot: PositionKey | null; id: string | null } => {
+    let best: { slot: PositionKey | null; id: string | null; score: number } = { slot: null, id: null, score: -Infinity };
+    for (const pos of POSITIONS_CONFIG) {
+      const ent = lm[pos.key];
+      if (ent && ent.entityType === 'player') {
+        const score = getEffectivePPG(ent);
+        if (score > best.score) {
+          best = { slot: pos.key as PositionKey, id: ent.id, score };
+        }
+      }
+    }
+    return { slot: best.slot, id: best.id };
+  };
+
+  const startUndoWindow = () => {
+    setShowUndo(true);
+    if (undoTimeoutId) window.clearTimeout(undoTimeoutId);
+    const id = window.setTimeout(() => setShowUndo(false), 7000);
+    setUndoTimeoutId(id);
+  };
+
+  const handleUndo = () => {
+    if (undoSnapshot) {
+      setLineup(undoSnapshot.lineup);
+      if (undoSnapshot.captainSlot && undoSnapshot.captainId) {
+        setCaptain(undoSnapshot.captainSlot, undoSnapshot.captainId);
+      }
+      setUndoSnapshot(null);
+      setShowUndo(false);
+      if (undoTimeoutId) {
+        window.clearTimeout(undoTimeoutId);
+        setUndoTimeoutId(null);
+      }
+      setSaveStatus('idle', null, 'Changes undone.');
+    }
+  };
 
   const handleRandomizeLineup = async () => {
     if (!usageCounts || !weeklySchedule) {
@@ -115,10 +157,15 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
     setSaveStatus('idle');
 
     try {
+      // Snapshot for undo
+      setUndoSnapshot({
+        lineup: { ...(lineup as Record<PositionKey, SelectableEntity | undefined>) },
+        captainSlot: designatedCaptainSlotKey,
+        captainId: selectedCaptainPlayerIdForSave,
+      });
+
       const randomizedLineup: Partial<Record<PositionKey, SelectableEntity | undefined>> = {};
-      const selectedTeamIds = new Set<string>(); // Track selected team IDs to prevent duplicates
-      
-      // First, preserve all locked entities and track their team IDs
+      const selectedTeamIds = new Set<string>();
       POSITIONS_CONFIG.forEach(positionDetail => {
         const currentEntity = lineup[positionDetail.key];
         if (currentEntity && isEntityGameLocked(currentEntity)) {
@@ -128,93 +175,93 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
           }
         }
       });
-      
-      // Randomize each unlocked position
+
       for (const positionDetail of POSITIONS_CONFIG) {
         try {
           const positionKey = positionDetail.key as PositionKey;
-          
-          // Skip if this position is already locked
           const currentEntity = lineup[positionKey];
+
+          // Skip if this position is already locked
           if (currentEntity && isEntityGameLocked(currentEntity)) {
             continue;
           }
-          
+
           let availableEntities: SelectableEntity[] = [];
-          
-          if (positionDetail.type === 'player') {
-            availableEntities = await fetchSelectablePlayers(positionKey, usageCounts, weeklySchedule);
-          } else {
-            availableEntities = await fetchSelectableTeams(positionKey, usageCounts, weeklySchedule);
-          }
-          
-          // Filter out entities with max usage (5) and those with bye weeks
-          // For teams: allow if they have either PPG > 0 OR season stats (for early season)
-          const eligibleEntities = availableEntities.filter(entity => {
-            if (entity.usageCount >= 5) return false;
-            if (entity.byeWeek === currentWeek) return false;
-            
-            // For team positions: prevent selecting the same team twice
-            if (entity.entityType === 'team' && selectedTeamIds.has(entity.id)) {
-              return false;
-            }
-            
-            // For players: use PPG if available, otherwise use fallback scoring
-            if (entity.entityType === 'player') {
-              // Week 1 fallback: Always allow players, effective PPG will handle scoring
-              return true; // Always allow for Week 1, getEffectivePPG handles scoring
-            }
-            
-            // For teams: Week 1 fallback - always allow teams, effective PPG will handle scoring
-            if (entity.entityType === 'team') {
-              return true; // Always allow for Week 1, getEffectivePPG handles scoring
-            }
-            
-            return false;
-          });
-          
-          if (eligibleEntities.length > 0) {
-            // Weighted random selection favoring higher effective PPG
-            const weights = eligibleEntities.map(entity => getEffectivePPG(entity));
-            const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
-            const randomValue = Math.random() * totalWeight;
-            
-            let currentWeight = 0;
-            for (let i = 0; i < eligibleEntities.length; i++) {
-              currentWeight += weights[i];
-              if (randomValue <= currentWeight) {
-                const selectedEntity = eligibleEntities[i];
-                randomizedLineup[positionKey] = selectedEntity;
-                
-                // Track team ID to prevent duplicate team selections
-                if (selectedEntity.entityType === 'team') {
-                  selectedTeamIds.add(selectedEntity.id);
+          availableEntities = positionDetail.type === 'player'
+            ? await fetchSelectablePlayers(positionKey, usageCounts, weeklySchedule)
+            : await fetchSelectableTeams(positionKey, usageCounts, weeklySchedule);
+
+          const eligibleEntities = availableEntities
+            .filter(entity => {
+              if (entity.usageCount >= 5) return false;
+              if (entity.byeWeek === currentWeek) return false;
+              if (entity.entityType === 'team' && selectedTeamIds.has(entity.id)) return false;
+              return true;
+            })
+            .sort((a, b) => {
+              if (a.entityType === 'player') {
+                return getEffectivePPG(b) - getEffectivePPG(a);
+              } else {
+                // For teams, prioritize by season record and then by position-specific fantasy points
+                if (a.entityType === 'team' && b.entityType === 'team') {
+                  const aRecord = a.seasonRecord;
+                  const bRecord = b.seasonRecord;
+                  
+                  if (aRecord && bRecord) {
+                    const aWins = Number(aRecord.wins) || 0;
+                    const aLosses = Number(aRecord.losses) || 0;
+                    const aTies = Number(aRecord.ties) || 0;
+                    const aTotalGames = aWins + aLosses + aTies;
+                    const aWinPct = aTotalGames > 0 ? aWins / aTotalGames : 0;
+                    
+                    const bWins = Number(bRecord.wins) || 0;
+                    const bLosses = Number(bRecord.losses) || 0;
+                    const bTies = Number(bRecord.ties) || 0;
+                    const bTotalGames = bWins + bLosses + bTies;
+                    const bWinPct = bTotalGames > 0 ? bWins / bTotalGames : 0;
+                    
+                    if (aWinPct !== bWinPct) {
+                      return bWinPct - aWinPct;
+                    }
+                  }
                 }
-                break;
+                
+                // Fallback to fantasy points
+                return getEffectivePPG(b) - getEffectivePPG(a);
               }
-            }
+            });
+
+          if (eligibleEntities.length > 0) {
+            const selectedEntity = eligibleEntities[0];
+            randomizedLineup[positionKey] = selectedEntity;
+            if (selectedEntity.entityType === 'team') selectedTeamIds.add(selectedEntity.id);
           }
         } catch (error) {
           console.warn(`Failed to randomize position ${positionDetail.key}:`, error);
         }
       }
-      
-      // Count locked vs randomized positions
+
       const lockedCount = POSITIONS_CONFIG.filter(pos => {
         const entity = lineup[pos.key];
         return entity && isEntityGameLocked(entity);
       }).length;
-      
       const randomizedCount = POSITIONS_CONFIG.length - lockedCount;
-      
       setLineup(randomizedLineup);
-      
+
+      // Auto-select captain if current is invalid after randomize
+      const captainStillValid = selectedCaptainPlayerIdForSave && Object.values(randomizedLineup).some(e => e && e.entityType === 'player' && e.id === selectedCaptainPlayerIdForSave);
+      if (!captainStillValid) {
+        const { slot, id } = getBestCaptainCandidate(randomizedLineup);
+        if (slot && id) setCaptain(slot, id);
+      }
+
       if (lockedCount > 0) {
         setSaveStatus('idle', null, `Randomized ${randomizedCount} positions. ${lockedCount} locked positions kept.`);
       } else {
         setSaveStatus('idle', null, "Lineup randomized successfully!");
       }
-      
+
+      startUndoWindow();
     } catch (error) {
       console.error("Error randomizing lineup:", error);
       setSaveStatus('error', "Failed to randomize lineup.");
@@ -233,128 +280,141 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
     setSaveStatus('idle');
 
     try {
+      // Snapshot for undo
+      setUndoSnapshot({
+        lineup: { ...(lineup as Record<PositionKey, SelectableEntity | undefined>) },
+        captainSlot: designatedCaptainSlotKey,
+        captainId: selectedCaptainPlayerIdForSave,
+      });
+
       const optimizedLineup: Partial<Record<PositionKey, SelectableEntity | undefined>> = {};
-      const selectedTeamIds = new Set<string>(); // Track selected team IDs to prevent duplicates
-      
-      // First, preserve all locked entities and track their team IDs
+      const fillOnlyMissing = missingCount > 0; // Determine if we're filling only missing slots
+      let newlyFilledCount = 0;
+
+      // Base lineup that we will output. If filling only missing, start with current lineup.
+      // Otherwise, start with an empty lineup to be fully optimized.
+      const baseLineup: Record<PositionKey, SelectableEntity | undefined> = fillOnlyMissing
+        ? ({ ...(lineup as Record<PositionKey, SelectableEntity | undefined>) })
+        : ({} as Record<PositionKey, SelectableEntity | undefined>);
+
+      // Track team IDs already in use to avoid duplicates (consider all current picks when filling missing)
+      const selectedTeamIds = new Set<string>();
       POSITIONS_CONFIG.forEach(positionDetail => {
         const currentEntity = lineup[positionDetail.key];
+        if (currentEntity) {
+          if (currentEntity.entityType === 'team') selectedTeamIds.add(currentEntity.id);
+        }
+        // Always preserve locked entities into the base/optimized structure
         if (currentEntity && isEntityGameLocked(currentEntity)) {
           optimizedLineup[positionDetail.key] = currentEntity;
-          if (currentEntity.entityType === 'team') {
-            selectedTeamIds.add(currentEntity.id);
-          }
+          baseLineup[positionDetail.key as PositionKey] = currentEntity; // Ensure locked are in baseLineup too
         }
       });
-      
-      // Optimize each unlocked position by selecting highest PPG available
+
       for (const positionDetail of POSITIONS_CONFIG) {
         try {
           const positionKey = positionDetail.key as PositionKey;
-          
-          // Skip if this position is already locked
           const currentEntity = lineup[positionKey];
+
+          // Skip if this position is already locked
           if (currentEntity && isEntityGameLocked(currentEntity)) {
             continue;
           }
-          
-          let availableEntities: SelectableEntity[] = [];
-          
-          if (positionDetail.type === 'player') {
-            availableEntities = await fetchSelectablePlayers(positionKey, usageCounts, weeklySchedule);
-          } else {
-            availableEntities = await fetchSelectableTeams(positionKey, usageCounts, weeklySchedule);
+          // If filling only missing slots, skip positions that already have a pick (and are not locked)
+          if (fillOnlyMissing && currentEntity && !isEntityGameLocked(currentEntity)) {
+            continue;
           }
-          
-          // Filter and sort by PPG
-          // For teams: use a scoring system that considers season stats when PPG is 0
+
+          let availableEntities: SelectableEntity[] = [];
+          availableEntities = positionDetail.type === 'player'
+            ? await fetchSelectablePlayers(positionKey, usageCounts, weeklySchedule)
+            : await fetchSelectableTeams(positionKey, usageCounts, weeklySchedule);
+
           const eligibleEntities = availableEntities
             .filter(entity => {
               if (entity.usageCount >= 5) return false;
               if (entity.byeWeek === currentWeek) return false;
-              
-              // For team positions: prevent selecting the same team twice
-              if (entity.entityType === 'team' && selectedTeamIds.has(entity.id)) {
-                return false;
-              }
-              
-              // For players: use PPG if available, otherwise use fallback scoring
-              if (entity.entityType === 'player') {
-                // Week 1 fallback: Always allow players, effective PPG will handle scoring
-                return true; // Always allow for Week 1, getEffectivePPG handles scoring
-              }
-              
-              // For teams: Week 1 fallback - always allow teams, effective PPG will handle scoring
-              if (entity.entityType === 'team') {
-                return true; // Always allow for Week 1, getEffectivePPG handles scoring
-              }
-              
-              return false;
+              if (entity.entityType === 'team' && selectedTeamIds.has(entity.id)) return false;
+              return true;
             })
             .sort((a, b) => {
-              // For teams with 0 PPG, use a basic ranking based on season stats
-              if (a.entityType === 'team' && b.entityType === 'team' && a.actualPPG === 0 && b.actualPPG === 0) {
-                // Simple fallback: prefer teams with better season records or more stats
-                const teamA = a as SelectableTeam;
-                const teamB = b as SelectableTeam;
-                
-                // If both have season records, prefer better win percentage
-                if (teamA.seasonRecord && teamB.seasonRecord) {
-                  const winsA = Number(teamA.seasonRecord.wins) || 0;
-                  const lossesA = Number(teamA.seasonRecord.losses) || 0;
-                  const tiesA = Number(teamA.seasonRecord.ties) || 0;
-                  const winsB = Number(teamB.seasonRecord.wins) || 0;
-                  const lossesB = Number(teamB.seasonRecord.losses) || 0;
-                  const tiesB = Number(teamB.seasonRecord.ties) || 0;
+              if (a.entityType === 'player') {
+                return getEffectivePPG(b) - getEffectivePPG(a);
+              } else {
+                // For teams, prioritize by season record and then by position-specific fantasy points
+                if (a.entityType === 'team' && b.entityType === 'team') {
+                  const aRecord = a.seasonRecord;
+                  const bRecord = b.seasonRecord;
                   
-                  const totalGamesA = winsA + lossesA + tiesA;
-                  const totalGamesB = winsB + lossesB + tiesB;
-                  
-                  if (totalGamesA > 0 && totalGamesB > 0) {
-                    const winPctA = winsA / totalGamesA;
-                    const winPctB = winsB / totalGamesB;
-                    return winPctB - winPctA;
+                  if (aRecord && bRecord) {
+                    const aWins = Number(aRecord.wins) || 0;
+                    const aLosses = Number(aRecord.losses) || 0;
+                    const aTies = Number(aRecord.ties) || 0;
+                    const aTotalGames = aWins + aLosses + aTies;
+                    const aWinPct = aTotalGames > 0 ? aWins / aTotalGames : 0;
+                    
+                    const bWins = Number(bRecord.wins) || 0;
+                    const bLosses = Number(bRecord.losses) || 0;
+                    const bTies = Number(bRecord.ties) || 0;
+                    const bTotalGames = bWins + bLosses + bTies;
+                    const bWinPct = bTotalGames > 0 ? bWins / bTotalGames : 0;
+                    
+                    if (aWinPct !== bWinPct) {
+                      return bWinPct - aWinPct;
+                    }
                   }
                 }
                 
-                // Fallback to alphabetical
-                return a.name.localeCompare(b.name);
+                // Fallback to fantasy points
+                return getEffectivePPG(b) - getEffectivePPG(a);
               }
-              
-              // Use effective PPG (with fallbacks)
-              return getEffectivePPG(b) - getEffectivePPG(a);
             });
-          
+
           if (eligibleEntities.length > 0) {
             const selectedEntity = eligibleEntities[0];
-            optimizedLineup[positionKey] = selectedEntity;
-            
-            // Track team ID to prevent duplicate team selections
-            if (selectedEntity.entityType === 'team') {
-              selectedTeamIds.add(selectedEntity.id);
+            // When filling only missing, write into baseLineup; otherwise into optimized structure
+            if (fillOnlyMissing) {
+              // Only fill if the slot is currently empty or not locked
+              if (!baseLineup[positionKey] || !isEntityGameLocked(baseLineup[positionKey])) {
+                baseLineup[positionKey] = selectedEntity;
+                newlyFilledCount++;
+              }
+            } else {
+              optimizedLineup[positionKey] = selectedEntity;
             }
+            if (selectedEntity.entityType === 'team') selectedTeamIds.add(selectedEntity.id);
           }
         } catch (error) {
           console.warn(`Failed to optimize position ${positionDetail.key}:`, error);
         }
       }
-      
-      // Count locked vs optimized positions
-      const lockedCount = POSITIONS_CONFIG.filter(pos => {
-        const entity = lineup[pos.key];
-        return entity && isEntityGameLocked(entity);
-      }).length;
-      
-      const optimizedCount = POSITIONS_CONFIG.length - lockedCount;
-      
-      setLineup(optimizedLineup);
-      
-      if (lockedCount > 0) {
-        setSaveStatus('idle', null, `Optimized ${optimizedCount} positions. ${lockedCount} locked positions kept.`);
-      } else {
-        setSaveStatus('idle', null, "Lineup optimized for highest projected points!");
+
+      const finalLineup = (fillOnlyMissing ? baseLineup : optimizedLineup) as Partial<Record<PositionKey, SelectableEntity | undefined>>;
+      setLineup(finalLineup);
+
+      // Captain handling: keep current if still present, else select best
+      const captainStillValid = selectedCaptainPlayerIdForSave && Object.values(finalLineup).some(e => e && e.entityType === 'player' && e.id === selectedCaptainPlayerIdForSave);
+      if (!captainStillValid) {
+        const { slot, id } = getBestCaptainCandidate(finalLineup);
+        if (slot && id) setCaptain(slot, id);
       }
-      
+
+      if (fillOnlyMissing) {
+        setSaveStatus('idle', null, newlyFilledCount > 0 ? `Filled ${newlyFilledCount} missing slot${newlyFilledCount === 1 ? '' : 's'}.` : 'No eligible picks found to fill missing slots.');
+      } else {
+        const lockedCount = POSITIONS_CONFIG.filter(pos => {
+          const entity = lineup[pos.key];
+          return entity && isEntityGameLocked(entity);
+        }).length;
+        const optimizedCount = POSITIONS_CONFIG.length - lockedCount;
+        if (lockedCount > 0) {
+          setSaveStatus('idle', null, `Optimized ${optimizedCount} positions. ${lockedCount} locked positions kept.`);
+        } else {
+          setSaveStatus('idle', null, "Lineup optimized for highest projected points!");
+        }
+      }
+
+      startUndoWindow();
     } catch (error) {
       console.error("Error optimizing lineup:", error);
       setSaveStatus('error', "Failed to optimize lineup.");
@@ -364,8 +424,8 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
   };
 
   const handleCopyFromLastWeek = async () => {
-    if (!userId || !leagueId || currentWeek <= 1) {
-      setSaveStatus('error', "Cannot copy from last week.");
+    if (!userId || !leagueId) {
+      setSaveStatus('error', "Cannot copy from last week - missing user or league data.");
       return;
     }
 
@@ -373,101 +433,54 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
     setSaveStatus('idle');
 
     try {
-      const lastWeekData = await fetchStoredWeeklyLineup(userId, leagueId, currentWeek - 1, currentSeason);
-      
-      if (!lastWeekData || !lastWeekData.picks) {
-        setSaveStatus('error', "No lineup found for last week.");
-        setIsCopyingFromLastWeek(false);
+      const lastWeek = currentWeek - 1;
+      if (lastWeek < 1) {
+        setSaveStatus('error', "Cannot copy from Week 0 or earlier.");
         return;
       }
 
-      // Reconstruct lineup with current week's data
-      const reconstructedLineup: Partial<Record<PositionKey, SelectableEntity | undefined>> = {};
-      
-      // First, preserve all locked entities
-      POSITIONS_CONFIG.forEach(positionDetail => {
-        const currentEntity = lineup[positionDetail.key];
-        if (currentEntity && isEntityGameLocked(currentEntity)) {
-          reconstructedLineup[positionDetail.key] = currentEntity;
-        }
-      });
-      
-      for (const [posKey, pick] of Object.entries(lastWeekData.picks)) {
-        if (pick) {
-          try {
-            let entity: SelectableEntity | null = null;
-            
-            if (pick.type === 'player') {
-              const players = await fetchSelectablePlayers(posKey as PositionKey, usageCounts || undefined, weeklySchedule);
-              entity = players.find(p => p.id === pick.id) || null;
-            } else if (pick.type === 'team') {
-              const teams = await fetchSelectableTeams(posKey as PositionKey, usageCounts || undefined, weeklySchedule);
-              entity = teams.find(t => t.id === pick.id) || null;
-            }
-            
-            if (entity) {
-              // Only copy if the current position is not locked
-              const currentEntity = lineup[posKey as PositionKey];
-              if (!currentEntity || !isEntityGameLocked(currentEntity)) {
-                reconstructedLineup[posKey as PositionKey] = entity;
-              }
-            }
-          } catch (error) {
-            console.warn(`Failed to load entity ${pick.id} for position ${posKey}:`, error);
-          }
-        }
+      const lastWeekLineup = await fetchStoredWeeklyLineup(userId, leagueId, lastWeek, currentSeason);
+      if (!lastWeekLineup || Object.keys(lastWeekLineup).length === 0) {
+        setSaveStatus('error', "No lineup found from last week to copy.");
+        return;
       }
 
-      // Count locked vs copied positions
-      const lockedCount = POSITIONS_CONFIG.filter(pos => {
-        const entity = lineup[pos.key];
-        return entity && isEntityGameLocked(entity);
-      }).length;
-      
-      const copiedCount = Object.keys(lastWeekData.picks).length - lockedCount;
-      
-      setLineup(reconstructedLineup);
-      
-      if (lockedCount > 0) {
-        setSaveStatus('idle', null, `Copied ${copiedCount} positions from last week. ${lockedCount} locked positions kept.`);
-      } else {
-        setSaveStatus('idle', null, "Successfully copied lineup from last week!");
+      // Filter out entities that are locked for this week
+      const filteredLineup: Partial<Record<PositionKey, SelectableEntity | undefined>> = {};
+      Object.entries(lastWeekLineup).forEach(([positionKey, entity]) => {
+        if (entity && !isEntityGameLocked(entity)) {
+          filteredLineup[positionKey as PositionKey] = entity;
+        }
+      });
+
+      if (Object.keys(filteredLineup).length === 0) {
+        setSaveStatus('error', "All last week's picks are locked for this week.");
+        return;
       }
-      
+
+      setLineup(filteredLineup);
+      setSaveStatus('idle', null, `Copied ${Object.keys(filteredLineup).length} picks from Week ${lastWeek}.`);
     } catch (error) {
       console.error("Error copying from last week:", error);
-      setSaveStatus('error', "Failed to copy lineup from last week.");
+      setSaveStatus('error', "Failed to copy from last week.");
     } finally {
       setIsCopyingFromLastWeek(false);
     }
   };
 
   const handleClearAllSlots = () => {
-    // Only clear unlocked slots
-    const newLineup: Partial<Record<PositionKey, SelectableEntity | undefined>> = {};
-    let clearedCount = 0;
-    let lockedCount = 0;
+    const unlockedLineup: Partial<Record<PositionKey, SelectableEntity | undefined>> = {};
     
-    POSITIONS_CONFIG.forEach(position => {
-      const entity = lineup[position.key];
-      if (entity && isEntityGameLocked(entity)) {
-        // Keep locked entities
-        newLineup[position.key] = entity;
-        lockedCount++;
-      } else {
-        // Clear unlocked entities
-        newLineup[position.key] = undefined;
-        if (entity) clearedCount++;
+    // Keep only locked entities
+    POSITIONS_CONFIG.forEach(positionDetail => {
+      const currentEntity = lineup[positionDetail.key];
+      if (currentEntity && isEntityGameLocked(currentEntity)) {
+        unlockedLineup[positionDetail.key] = currentEntity;
       }
     });
-    
-    setLineup(newLineup as Record<PositionKey, SelectableEntity | undefined>);
-    
-    if (lockedCount > 0) {
-      setSaveStatus('idle', null, `Cleared ${clearedCount} slots. ${lockedCount} locked slots kept.`);
-    } else {
-      setSaveStatus('idle', null, "All lineup slots cleared.");
-    }
+
+    setLineup(unlockedLineup);
+    setSaveStatus('idle', null, "Cleared all unlocked slots.");
   };
 
   return (
@@ -481,11 +494,7 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
         </div>
         <div className="relative">
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-            {/* Scroll hint gradient */}
             <div className="absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-white dark:from-gray-900 to-transparent pointer-events-none z-10" />
-            
-            {/* Mobile Compact Buttons */}
-            {/* Quick Pick / Optimize */}
             <button
               onClick={filledSlots === 0 ? handleRandomizeLineup : handleOptimizeLineup}
               disabled={isDisabled}
@@ -501,12 +510,10 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
-                  {filledSlots === 0 ? '🎲 Quick Pick' : '⚡ Optimize'}
+                  {filledSlots === 0 ? '🎲 Quick Pick' : `⚡ Optimize${missingCount > 0 ? ` (fill ${missingCount})` : ''}`}
                 </>
               )}
             </button>
-
-            {/* Randomize */}
             <button
               onClick={handleRandomizeLineup}
               disabled={isDisabled}
@@ -526,8 +533,6 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
                 </>
               )}
             </button>
-
-            {/* Copy from Last Week */}
             {!isWeek1 && (
               <button
                 onClick={handleCopyFromLastWeek}
@@ -549,8 +554,6 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
                 )}
               </button>
             )}
-
-            {/* Clear All */}
             {hasSelections && (
               <button
                 onClick={handleClearAllSlots}
@@ -567,7 +570,7 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
         </div>
       </div>
 
-      {/* Desktop: Original Card Layout */}
+      {/* Desktop */}
       <div className="hidden sm:block bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -674,6 +677,21 @@ const SimpleQuickActions: React.FC<SimpleQuickActionsProps> = ({
           </div>
         )}
       </div>
+
+      {/* Undo Bar - Keep this functional improvement */}
+      {showUndo && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between mt-4">
+          <span className="text-blue-800 text-sm font-medium">
+            Changes made! You can undo for 7 seconds.
+          </span>
+          <button
+            onClick={handleUndo}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-medium transition-colors"
+          >
+            Undo
+          </button>
+        </div>
+      )}
     </>
   );
 };

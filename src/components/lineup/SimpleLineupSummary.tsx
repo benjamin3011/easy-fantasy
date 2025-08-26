@@ -154,11 +154,11 @@ const SimpleLineupSummary: React.FC<SimpleLineupSummaryProps> = ({ enableCaptain
           </span>
           <div className="text-right">
             <div className="text-lg font-bold text-green-600 dark:text-green-400">
-              {projectedPoints.toFixed(1)}
+              {projectedPoints.toFixed(2)}
             </div>
             {enableCaptainFeature && hasCaptain && captainEntity && isCaptainValid && (
               <div className="text-xs text-yellow-600 dark:text-yellow-400">
-                +{(captainEntity.actualPPG * (captainPointMultiplier - 1)).toFixed(1)} captain bonus
+                +{(captainEntity.actualPPG * (captainPointMultiplier - 1)).toFixed(2)} captain bonus
               </div>
             )}
           </div>

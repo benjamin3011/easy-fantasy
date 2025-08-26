@@ -38,7 +38,7 @@ export const config = {
     RELEVANT_PLAYER_POSITIONS: ['QB', 'RB', 'WR', 'TE'],
     
     // Pre-season configuration
-    CURRENT_SEASON_TYPE: "pre", // "pre" for pre-season, "reg" for regular season
+    CURRENT_SEASON_TYPE: "reg", // "pre" for pre-season, "reg" for regular season
     PRE_SEASON_WEEK_OFFSET: 1, // Pre-season week 1 = API week 2 (since week 1 is Hall of Fame)
     PRE_SEASON_START_DATE_REF: new Date('2025-08-06'), // First Wednesday of pre-season Week 1
 };

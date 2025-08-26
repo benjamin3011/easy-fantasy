@@ -1,12 +1,12 @@
 // components/leagues/PublicLeaguesList.tsx
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { getPublicLeagues, League } from "../../utils/leagues";
 import { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import JoinLeagueDialog from "./JoinLeagueDialog";
 
 export default function PublicLeaguesList() {
   const [leagues, setLeagues] = useState<League[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Start with loading true to prevent flicker
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
@@ -14,32 +14,56 @@ export default function PublicLeaguesList() {
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
   const [selectedLeagueCode, setSelectedLeagueCode] = useState<string>("");
 
-  // useCallback to memoize the fetch function
-  const loadLeagues = useCallback(async (loadMore = false) => {
-    if ((!hasNextPage && loadMore) || loading || loadingMore) return;
+  // Function to load leagues
+  const loadLeagues = async (loadMore = false) => {
+    console.log('loadLeagues called:', { loadMore, hasNextPage, loading, loadingMore });
+    
+    // Only prevent if trying to load more when there's no next page, or if already loading more
+    if ((!hasNextPage && loadMore) || loadingMore) {
+      console.log('loadLeagues early return:', { hasNextPage, loadMore, loading, loadingMore });
+      return;
+    }
 
-    setLoading(!loadMore);
-    setLoadingMore(loadMore);
+    console.log('Starting API call...');
+    if (!loadMore) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
     setError(null);
 
     try {
+      console.log('Calling getPublicLeagues...');
       const result = await getPublicLeagues(10, loadMore ? lastVisible : null);
-      setLeagues(prev => loadMore ? [...prev, ...result.leagues] : result.leagues);
+      console.log('API result:', result);
+      
+      // Update leagues
+      if (loadMore) {
+        setLeagues(prev => [...prev, ...result.leagues]);
+      } else {
+        setLeagues(result.leagues);
+      }
+      
+      // Update pagination
       setLastVisible(result.nextCursor ?? null);
       setHasNextPage(!!result.nextCursor);
+      
+      // Debug logging
+      console.log('Loaded leagues:', result.leagues.length, 'Has next:', !!result.nextCursor);
     } catch (err) {
       console.error("Failed to load public leagues:", err);
       setError("Could not load public leagues. Please try again.");
     } finally {
+      console.log('Setting loading to false');
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [hasNextPage, loading, loadingMore, lastVisible]);
+  };
 
-  // Initial load
+  // Initial load - only run once on mount
   useEffect(() => {
     loadLeagues();
-  }, [loadLeagues]);
+  }, []);
 
   const handleJoinClick = (leagueCode: string) => {
     setSelectedLeagueCode(leagueCode);
@@ -92,6 +116,9 @@ export default function PublicLeaguesList() {
             {[1, 2, 3].map((i) => (
               <div key={i} className="bg-gray-100 dark:bg-gray-700 rounded-lg h-20 animate-pulse" />
             ))}
+            <div className="text-xs text-gray-500 text-center">
+              Debug: loading={loading.toString()}, leagues={leagues.length}, error={error || 'null'}
+            </div>
           </div>
         )}
 

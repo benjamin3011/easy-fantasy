@@ -169,23 +169,21 @@ export default function LineupPage() {
   // Error state
   if (pageError) {
     return (
-      <div className="container mx-auto text-center py-10">
+      <div className="container mx-auto text-center px-2 py-10">
         <ComponentCard title="Unable to Load Lineup">
           <div className="p-6 text-center">
             <p className="text-lg text-red-500 mb-4">{pageError}</p>
-            <div className="space-y-2">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-center justify-center">
               <Link to="/leagues">
                 <Button variant="primary" size="sm">
                   Go to Leagues
                 </Button>
               </Link>
-              <div>
-                <Link to="/">
-                  <Button variant="outline" size="sm">
-                    Back to Home
-                  </Button>
-                </Link>
-              </div>
+              <Link to="/">
+                <Button variant="outline" size="sm">
+                  Back to Home
+                </Button>
+              </Link>
             </div>
           </div>
         </ComponentCard>
@@ -198,25 +196,23 @@ export default function LineupPage() {
     return (
       <>
         <PageMeta title="Lineup | Easy Fantasy" description="NFL Fantasy Football" />
-        <div className="container mx-auto text-center py-10">
+        <div className="container mx-auto text-center px-2 py-10">
           <ComponentCard title="No Leagues Found">
             <div className="p-6 text-center">
               <p className="text-lg text-gray-600 dark:text-gray-300 mb-4">
                 You need to join a league to set lineups.
               </p>
-              <div className="space-y-2">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-center justify-center">
                 <Link to="/leagues">
                   <Button variant="primary" size="sm">
                     Browse Leagues
                   </Button>
                 </Link>
-                <div>
-                  <Link to="/">
-                    <Button variant="outline" size="sm">
-                      Back to Home
-                    </Button>
-                  </Link>
-                </div>
+                <Link to="/">
+                  <Button variant="outline" size="sm">
+                    Back to Home
+                  </Button>
+                </Link>
               </div>
             </div>
           </ComponentCard>

@@ -103,7 +103,7 @@ export default function LeagueStandingsTable({ members }: Props) {
         ) : (
           sortedMembers.map((member, index) => {
             const position = start + index + 1;
-            const thisWeek = member.weeklyPoints?.[currentWeek] ?? 0;
+            const thisWeek = Math.round((member.weeklyPoints?.[currentWeek] ?? 0) * 100) / 100;
             
             return (
               <div key={member.uid} className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
@@ -126,7 +126,7 @@ export default function LeagueStandingsTable({ members }: Props) {
                       </h4>
                       <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
                         <span>Week {currentWeek}: {thisWeek} pts</span>
-                        <span>Total: {member.totalSeasonPoints ?? 0} pts</span>
+                        <span>Total: {Math.round((member.totalSeasonPoints ?? 0) * 100) / 100} pts</span>
                       </div>
                     </div>
                   </div>
@@ -176,7 +176,7 @@ export default function LeagueStandingsTable({ members }: Props) {
               ) : (
                 sortedMembers.map((member, index) => {
                   const position = start + index + 1;
-                  const thisWeek = member.weeklyPoints?.[currentWeek] ?? 0;
+                  const thisWeek = Math.round((member.weeklyPoints?.[currentWeek] ?? 0) * 100) / 100;
                   
                   return (
                     <TableRow key={member.uid} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
@@ -200,7 +200,7 @@ export default function LeagueStandingsTable({ members }: Props) {
                       </TableCell>
                       
                       <TableCell className="px-4 py-4 text-sm font-medium text-gray-900 dark:text-white">
-                        {member.totalSeasonPoints ?? 0}
+                        {Math.round((member.totalSeasonPoints ?? 0) * 100) / 100}
                       </TableCell>
                       
                       <TableCell className="px-4 py-4 text-sm">

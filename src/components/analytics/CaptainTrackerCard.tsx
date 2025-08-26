@@ -153,7 +153,7 @@ export default function CaptainTrackerCard({ leagueId }: CaptainTrackerCardProps
             </div>
             <div className="text-right">
               <div className="text-lg font-semibold text-amber-900 dark:text-amber-100">
-                +{captainData.totalBonusPoints}
+                +{captainData.totalBonusPoints.toFixed(2)}
               </div>
               <div className="text-xs text-amber-600 dark:text-amber-400">
                 bonus points
@@ -200,7 +200,7 @@ export default function CaptainTrackerCard({ leagueId }: CaptainTrackerCardProps
                     </span>
                   </div>
                   <div className="text-sm font-medium text-green-600 dark:text-green-400">
-                    +{stats.averageBonus.toFixed(1)} avg
+                    +{stats.averageBonus.toFixed(2)} avg
                   </div>
                 </div>
               ))}

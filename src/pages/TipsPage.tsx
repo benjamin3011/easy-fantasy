@@ -131,19 +131,17 @@ export default function TipsPage() {
         <ComponentCard title="Unable to Load Tips">
           <div className="p-6 text-center">
             <p className="text-lg text-red-500 mb-4">{pageError}</p>
-            <div className="space-y-2">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-center justify-center">
               <Link to="/leagues">
                 <Button variant="primary" size="sm">
                   Go to Leagues
                 </Button>
               </Link>
-              <div>
-                <Link to="/">
-                  <Button variant="outline" size="sm">
-                    Back to Home
-                  </Button>
-                </Link>
-              </div>
+              <Link to="/">
+                <Button variant="outline" size="sm">
+                  Back to Home
+                </Button>
+              </Link>
             </div>
           </div>
         </ComponentCard>
@@ -156,25 +154,23 @@ export default function TipsPage() {
     return (
       <>
         <PageMeta title="Tips | Easy Fantasy" description="NFL Fantasy Football Tips" />
-        <div className="mx-auto text-center py-10 px-4">
+        <div className="mx-auto text-center py-10 px-2">
           <ComponentCard title="No Leagues Found">
             <div className="p-6 text-center">
               <p className="text-lg text-gray-600 dark:text-gray-300 mb-4">
                 You need to join a league to make tips.
               </p>
-              <div className="space-y-2">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-center justify-center">
                 <Link to="/leagues">
                   <Button variant="primary" size="sm">
                     Browse Leagues
                   </Button>
                 </Link>
-                <div>
-                  <Link to="/">
-                    <Button variant="outline" size="sm">
-                      Back to Home
-                    </Button>
-                  </Link>
-                </div>
+                <Link to="/">
+                  <Button variant="outline" size="sm">
+                    Back to Home
+                  </Button>
+                </Link>
               </div>
             </div>
           </ComponentCard>

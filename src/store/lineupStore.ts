@@ -359,10 +359,22 @@ export const useLineupStore = create<LineupState>()(
       }, false, 'setPanel'),
       
       // New selection panel actions
-      openSelectionPanel: (position) => set({
-        isSelectionPanelOpen: true,
-        selectedPosition: position,
-      }, false, 'openSelectionPanel'),
+      openSelectionPanel: (position) => {
+        // Open immediately and mark loading to avoid empty-state flicker
+        set((state) => ({
+          isSelectionPanelOpen: true,
+          selectedPosition: position,
+          loadingStates: { ...state.loadingStates, [position.key as PositionKey]: true },
+          errorStates: { ...state.errorStates, [position.key as PositionKey]: null },
+        }), false, 'openSelectionPanel:openImmediate');
+
+        // Kick off fetch in background
+        if (position.type === 'player') {
+          void get().fetchSelectablePlayers(position.key as PositionKey);
+        } else {
+          void get().fetchSelectableTeams(position.key as PositionKey);
+        }
+      },
       
       closeSelectionPanel: () => set({
         isSelectionPanelOpen: false,
