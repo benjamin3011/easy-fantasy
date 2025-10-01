@@ -12,7 +12,7 @@ import type { NotificationPreferences as NotificationPrefs } from '../../types/n
 const defaultPreferences: NotificationPrefs = {
   enabled: true,
   lineupDeadlineAlerts: true,
-  lineupDeadlineMinutes: 60,
+  lineupDeadlineMinutes: 180, // Default to 3 hours, but 24 hours is available
   scoringAlerts: true,
   captainSuccessAlerts: true,
   injuryAlerts: true,
@@ -161,6 +161,9 @@ export const NotificationPreferencesComponent: React.FC = () => {
                       <option value={60}>1 hour</option>
                       <option value={120}>2 hours</option>
                       <option value={180}>3 hours</option>
+                      <option value={360}>6 hours</option>
+                      <option value={720}>12 hours</option>
+                      <option value={1440}>1 day (24 hours)</option>
                     </select>
                   </div>
                 )}

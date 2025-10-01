@@ -3,6 +3,7 @@ import { httpsCallable } from 'firebase/functions';
 import { functions, db } from '../../firebase/firebase';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { fetchGameScores } from '../../services/lineupFetchingService';
+import { fetchUserProfiles, UserProfile } from '../../utils/userProfiles';
 import { calculateCurrentNFLWeek } from '../../utils/nflWeekHelper';
 
 interface ProphetLeaderboardEntry {
@@ -36,6 +37,7 @@ export const ProphetLeaderboard: React.FC<ProphetLeaderboardProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [selectedWeek, setSelectedWeek] = useState<number>(week ?? calculateCurrentNFLWeek());
   const [weeklyOverrides, setWeeklyOverrides] = useState<Record<string, { points: number; correct: number; total: number }>>({});
+  const [userProfiles, setUserProfiles] = useState<Map<string, UserProfile>>(new Map());
 
   // Mock data for testing
   const mockLeaderboard: ProphetLeaderboardEntry[] = [
@@ -210,6 +212,19 @@ export const ProphetLeaderboard: React.FC<ProphetLeaderboardProps> = ({
     compute();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedWeek, leagueId, season]);
+
+  // Fetch user profiles when leaderboard changes
+  useEffect(() => {
+    const fetchProfiles = async () => {
+      if (leaderboard.length === 0) return;
+      
+      const uids = leaderboard.map(entry => entry.userId);
+      const profiles = await fetchUserProfiles(uids);
+      setUserProfiles(profiles);
+    };
+
+    fetchProfiles();
+  }, [leaderboard]);
 
   const fetchLeaderboard = async () => {
     setLoading(true);
@@ -510,7 +525,7 @@ export const ProphetLeaderboard: React.FC<ProphetLeaderboardProps> = ({
                       {entry.teamName}
                     </h4>
                     <div className="text-sm text-gray-600 dark:text-gray-400">
-                      {entry.userName}
+                      {userProfiles.get(entry.userId)?.firstName || 'Unknown'}
                     </div>
                   </div>
                 </div>
@@ -566,7 +581,7 @@ export const ProphetLeaderboard: React.FC<ProphetLeaderboardProps> = ({
                     {entry.teamName}
                   </h4>
                   <p className="text-gray-600 dark:text-gray-400">
-                    {entry.userName}
+                    {userProfiles.get(entry.userId)?.firstName || 'Unknown'}
                   </p>
                 </div>
               </div>

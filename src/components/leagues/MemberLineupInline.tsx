@@ -13,7 +13,7 @@ import { Member } from '../../utils/leagues';
 import { useLeagueContext } from '../../context/LeagueContext';
 import { useAuth } from '../../context/AuthContext';
 import { APP_CONFIG } from '../../config/appConfig';
-import { formatTimeUntilReveal, checkEntityVisibility } from '../../services/lineupVisibilityService';
+import { checkEntityVisibility } from '../../services/lineupVisibilityService';
 
 // Type for the slot data we build
 interface VisibleSlot {
@@ -111,7 +111,8 @@ export default function MemberLineupInline({
         let actualPoints: number | undefined = undefined;
 
         // Check entity visibility for progressive reveal
-        let isVisible = true;
+        // Default to appropriate initial state to prevent glitches
+        let isVisible = isViewingOwnLineup; // Only show immediately if viewing own lineup
         let timeUntilReveal: number | null = null;
 
         if (!isViewingOwnLineup) {
@@ -277,9 +278,6 @@ export default function MemberLineupInline({
     <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
 
 
-
-      {/* Progressive reveal disabled for now */}
-
       {/* Compact Lineup Slots */}
       {sortedSlots.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -300,27 +298,29 @@ export default function MemberLineupInline({
                   )}
                 </div>
                 
-                <div className="text-right">
+                <div className="text-right flex items-center justify-end space-x-1">
                   {slot.isVisible && slot.entity?.actualPoints !== undefined ? (
-                    <span className={`text-sm font-bold ${
-                      slot.isCaptain 
-                        ? 'text-yellow-600 dark:text-yellow-400' 
-                        : 'text-green-600 dark:text-green-400'
-                    }`}>
-                      {(() => {
-                        const basePoints = slot.entity.actualPoints;
-                        const finalPoints = slot.isCaptain && slot.entity.type === 'player' 
-                          ? basePoints * 1.5 
-                          : basePoints;
-                        return finalPoints.toFixed(2);
-                      })()}
+                    <>
                       {slot.isCaptain && (
-                        <span className="ml-1 text-xs">⭐</span>
+                        <span className="text-xs">⭐</span>
                       )}
-                    </span>
+                      <span className={`text-sm font-bold ${
+                        slot.isCaptain 
+                          ? 'text-yellow-600 dark:text-yellow-400' 
+                          : 'text-green-600 dark:text-green-400'
+                      }`}>
+                        {(() => {
+                          const basePoints = slot.entity.actualPoints;
+                          const finalPoints = slot.isCaptain && slot.entity.type === 'player' 
+                            ? basePoints * 1.5 
+                            : basePoints;
+                          return finalPoints.toFixed(2);
+                        })()}
+                      </span>
+                    </>
                   ) : (
                     <span className="text-xs text-gray-500 dark:text-gray-400">
-                      {slot.timeUntilReveal ? `🔒 ${formatTimeUntilReveal(slot.timeUntilReveal)}` : '🔒'}
+                      🔒
                     </span>
                   )}
                 </div>
@@ -333,7 +333,7 @@ export default function MemberLineupInline({
                   </div>
                 ) : (
                   <div className="text-gray-500 dark:text-gray-400 text-xs">
-                    {slot.timeUntilReveal ? `🕒 ${formatTimeUntilReveal(slot.timeUntilReveal)}` : '🔒 Hidden'}
+                    🔒 Hidden
                   </div>
                 )}
               </div>

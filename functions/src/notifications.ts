@@ -20,13 +20,34 @@ function generateFriendlyNotificationMessage(
   leagueName: string
 ): { title: string; body: string } {
   
-  // Friendly titles with emojis
-  const titles = [
-    "🏈 Game time approaching!",
-    "⏰ Quick lineup check",
-    "🚨 Games starting soon!",
-    "⚡ Fantasy reminder"
-  ];
+  // Friendly titles with emojis (context-aware)
+  let titles: string[];
+  
+  if (minutesUntilGame <= 60) {
+    // Urgent titles for games starting soon
+    titles = [
+      "🏈 Game time approaching!",
+      "⏰ Quick lineup check",
+      "🚨 Games starting soon!",
+      "⚡ Fantasy reminder"
+    ];
+  } else if (minutesUntilGame <= 720) {
+    // Half-day titles
+    titles = [
+      "🏈 Lineup reminder",
+      "⏰ Fantasy check-in",
+      "📋 Complete your lineup",
+      "⚡ Fantasy update"
+    ];
+  } else {
+    // Day-ahead titles
+    titles = [
+      "📅 Fantasy reminder",
+      "🗓️ Upcoming games",
+      "📋 Lineup check",
+      "⏰ Don't forget!"
+    ];
+  }
   
   // Generate body based on urgency and context
   let body: string;
@@ -44,12 +65,28 @@ function generateFriendlyNotificationMessage(
     } else {
       body = `Heads up! ${homeTeam} vs ${awayTeam} starts in ${minutesUntilGame} minutes. You've got ${positionCount} spots to fill in ${leagueName} 🏈`;
     }
-  } else {
-    // Early reminder - casual tone
+  } else if (minutesUntilGame <= 180) {
+    // Short-term reminder (within 3 hours)
     if (positionCount <= 2) {
       body = `Almost done! Just need ${positionCount} more picks for ${homeTeam} vs ${awayTeam} (starts in ${minutesUntilGame} min) 😊`;
     } else {
       body = `${homeTeam} vs ${awayTeam} starts in ${minutesUntilGame} minutes. Want to finish your ${leagueName} lineup? You've got ${positionCount} picks left 👍`;
+    }
+  } else if (minutesUntilGame <= 720) {
+    // Half-day reminder (within 12 hours)
+    const hours = Math.floor(minutesUntilGame / 60);
+    if (positionCount === 1) {
+      body = `${homeTeam} vs ${awayTeam} starts in ${hours} hours - just need 1 more player for ${leagueName}! 🎯`;
+    } else {
+      body = `${homeTeam} vs ${awayTeam} kicks off in ${hours} hours. You've got ${positionCount} picks to make in ${leagueName} 📋`;
+    }
+  } else {
+    // Day-ahead reminder (24+ hours)
+    const hours = Math.floor(minutesUntilGame / 60);
+    if (positionCount <= 2) {
+      body = `Don't forget! ${homeTeam} vs ${awayTeam} starts in ${hours} hours. Almost done - just ${positionCount} more picks for ${leagueName}! 📅`;
+    } else {
+      body = `Reminder: ${homeTeam} vs ${awayTeam} starts in ${hours} hours. You've got ${positionCount} lineup spots to fill in ${leagueName} 🗓️`;
     }
   }
   
@@ -124,18 +161,18 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
       const scheduleData = scheduleDoc.data();
       const games = scheduleData?.games || [];
       
-             // Find games starting in the next 30-60 minutes
+             // Find games starting in the next 24 hours (to accommodate day-ahead notifications)
        const upcomingGames = games.filter((game: { gameTime_epoch: string | number; gameID: string; home?: string; away?: string }) => {
         const gameTime = typeof game.gameTime_epoch === 'string' 
           ? parseInt(game.gameTime_epoch) 
           : game.gameTime_epoch;
         const timeUntilGame = gameTime - now;
-        return timeUntilGame > 0 && timeUntilGame <= 3600; // Next hour
+        return timeUntilGame > 0 && timeUntilGame <= 86400; // Next 24 hours
       });
       
       if (upcomingGames.length === 0) {
-        logger.info('No games starting in the next hour');
-        return { success: true, alertsSent: 0, message: 'No games starting in the next hour' };
+        logger.info('No games starting in the next 24 hours');
+        return { success: true, alertsSent: 0, message: 'No games starting in the next 24 hours' };
       }
       
       logger.info(`Found ${upcomingGames.length} games starting soon`);

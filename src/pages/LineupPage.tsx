@@ -231,7 +231,11 @@ export default function LineupPage() {
         description="Set your weekly fantasy football lineup" 
       />
       
-      <PullToRefresh onRefresh={async () => window.location.reload()}> 
+      <PullToRefresh 
+        onRefresh={async () => window.location.reload()}
+        threshold={90}
+        resistance={2.5}
+      > 
       <div className="container mx-auto px-2 py-6 pb-content-safe">
         {/* Header with Controls */}
         <div className="mb-4">

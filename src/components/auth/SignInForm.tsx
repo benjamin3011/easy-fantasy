@@ -118,7 +118,7 @@ export default function SignInForm() {
           </div>
 
           {/* social buttons */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-5 hidden">
             <button
               type="button"
               onClick={handleGoogleSignIn}
@@ -162,7 +162,7 @@ export default function SignInForm() {
           </div>
 
           {/* divider */}
-          <div className="relative py-3 sm:py-5">
+          <div className="relative py-3 sm:py-5 hidden">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-gray-200 dark:border-gray-800"></div>
             </div>

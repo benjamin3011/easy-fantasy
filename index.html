@@ -18,23 +18,33 @@
     
     <!-- iOS-specific meta tags -->
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Easy Fantasy">
+    
+    <!-- iOS icons - multiple sizes for best compatibility -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-icon-180.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/apple-icon-152.png">
+    <link rel="apple-touch-icon" sizes="120x120" href="/icons/apple-icon-120.png">
     <link rel="apple-touch-icon" href="/icons/apple-icon-180.png">
-    <link rel="apple-touch-startup-image" href="/icons/apple-icon-180.png">
     
     <!-- iOS Safari specific -->
     <meta name="format-detection" content="telephone=no">
     <meta name="apple-touch-fullscreen" content="yes">
     
     <!-- Theme colors -->
-    <meta name="theme-color" content="#465fff">
-    <meta name="msapplication-TileColor" content="#465fff">
-    <meta name="msapplication-navbutton-color" content="#465fff">
+    <meta name="theme-color" content="#161950">
+    <meta name="msapplication-TileColor" content="#161950">
+    <meta name="msapplication-navbutton-color" content="#161950">
     
     <!-- Android Chrome -->
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="application-name" content="Easy Fantasy">
+    
+    <!-- Enhanced Android PWA -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#161950">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#161950">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="display" content="standalone">
     
     <!-- Prevent text size adjustment on orientation change -->
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -48,7 +58,10 @@
       html {
         touch-action: manipulation;
         min-height: calc(100% + env(safe-area-inset-top));
-        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); 
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        /* Disable browser pull-to-refresh */
+        overscroll-behavior-y: none;
+        -webkit-overscroll-behavior-y: none;
       }
       
       /* Prevent iOS bounce scroll */
@@ -67,6 +80,9 @@
         bottom: 0;
         overflow: auto;
         -webkit-overflow-scrolling: touch;
+        /* Additional pull-to-refresh prevention */
+        overscroll-behavior: none;
+        -webkit-overscroll-behavior: none;
       }
     </style>
   </head>

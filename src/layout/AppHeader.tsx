@@ -9,7 +9,7 @@ import UserDropdown from "../components/header/UserDropdown";
 
 // Route to page title mapping
 const getPageTitle = (pathname: string): string => {
-  if (pathname === '/') return 'Dashboard';
+  if (pathname === '/') return 'Game Center';
   if (pathname === '/lineup' || pathname.startsWith('/leagues/') && pathname.includes('/lineup/')) return 'Lineup Builder';
   if (pathname === '/tips') return 'Game Tips';
   if (pathname === '/leagues') return 'Leagues';

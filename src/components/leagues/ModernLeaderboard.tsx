@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Member } from '../../utils/leagues';
+import { fetchUserProfiles, UserProfile } from '../../utils/userProfiles';
 import { calculateCurrentNFLWeek } from '../../utils/nflWeekHelper';
 import MemberLineupInline from './MemberLineupInline';
 
@@ -12,6 +13,7 @@ interface ModernLeaderboardProps {
 export default function ModernLeaderboard({ members, leagueId, useMockData = false }: ModernLeaderboardProps) {
   const [showAll, setShowAll] = useState(false);
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
+  const [userProfiles, setUserProfiles] = useState<Map<string, UserProfile>>(new Map());
   const currentWeek = calculateCurrentNFLWeek();
 
   // Mock data for testing
@@ -93,6 +95,19 @@ export default function ModernLeaderboard({ members, leagueId, useMockData = fal
   // Use mock data if flag is set, otherwise use real data
   const dataToUse = useMockData ? mockMembers : members;
 
+  // Fetch user profiles when members change
+  useEffect(() => {
+    const fetchProfiles = async () => {
+      if (dataToUse.length === 0) return;
+      
+      const uids = dataToUse.map(member => member.uid);
+      const profiles = await fetchUserProfiles(uids);
+      setUserProfiles(profiles);
+    };
+
+    fetchProfiles();
+  }, [dataToUse]);
+
   // Sort members by total points descending
   const sortedMembers = useMemo(() => {
     return dataToUse
@@ -139,7 +154,11 @@ export default function ModernLeaderboard({ members, leagueId, useMockData = fal
     const thisWeek = Math.round((member.weeklyPoints?.[currentWeek] ?? 0) * 100) / 100;
     const lastWeek = Math.round((member.weeklyPoints?.[currentWeek - 1] ?? 0) * 100) / 100;
     
+    // Don't show change if no last week data
     if (!lastWeek) return null;
+    
+    // Don't show change if current week has no points yet (new week just started)
+    if (thisWeek === 0) return null;
     
     const change = Math.round((thisWeek - lastWeek) * 100) / 100;
     if (change > 0) {
@@ -199,7 +218,7 @@ export default function ModernLeaderboard({ members, leagueId, useMockData = fal
                     {member.teamName}
                   </h4>
                   <div className="text-sm text-gray-500 dark:text-gray-400">
-                    #{position}
+                    {userProfiles.get(member.uid)?.firstName || 'Unknown'} • #{position}
                   </div>
                 </div>
                 
@@ -250,7 +269,7 @@ export default function ModernLeaderboard({ members, leagueId, useMockData = fal
                         -
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">
-                        No Change
+                        {thisWeek === 0 ? 'New Week' : 'No Change'}
                       </div>
                     </>
                   )}
@@ -277,6 +296,9 @@ export default function ModernLeaderboard({ members, leagueId, useMockData = fal
                   <h4 className="font-bold text-xl text-gray-900 dark:text-white truncate">
                     {member.teamName}
                   </h4>
+                  <p className="text-gray-600 dark:text-gray-400">
+                    {userProfiles.get(member.uid)?.firstName || 'Unknown'}
+                  </p>
                 </div>
               </div>
               

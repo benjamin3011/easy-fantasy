@@ -54,6 +54,12 @@ import { ReactComponent as AlertHexaIcon } from "./alert-hexa.svg?react";
 import { ReactComponent as ErrorHexaIcon } from "./info-hexa.svg?react";
 import { ReactComponent as RefreshIcon } from "./refresh.svg?react";
 import { ReactComponent as EnterIcon } from "./enter.svg?react";
+import { ReactComponent as FootballIcon } from "./football.svg?react";
+import { ReactComponent as LineupIcon } from "./lineup.svg?react";
+import { ReactComponent as ResultsIcon } from "./results.svg?react";
+import { ReactComponent as TrophyIcon } from "./trophy.svg?react";
+import { ReactComponent as ProfileIcon } from "./profile.svg?react";
+import { ReactComponent as AdminIcon } from "./admin.svg?react";
 
 export {
   ErrorHexaIcon,
@@ -111,5 +117,11 @@ export {
   ChevronUpIcon,
   ChatIcon,
   RefreshIcon,
-  EnterIcon
+  EnterIcon,
+  FootballIcon,
+  LineupIcon,
+  ResultsIcon,
+  TrophyIcon,
+  ProfileIcon,
+  AdminIcon
 };

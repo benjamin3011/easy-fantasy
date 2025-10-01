@@ -569,7 +569,7 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
 
                     {/* VS Divider */}
                     <div className="px-2">
-                      <span className="text-sm font-medium text-gray-500 dark:text-gray-400">VS</span>
+                      <span className="text-lg font-medium text-gray-500 dark:text-gray-400">@</span>
                     </div>
 
                     {/* Home Team */}
@@ -638,13 +638,7 @@ const WeeklyTips: React.FC<WeeklyTipsProps> = ({ leagueId, week, season }) => {
                     </button>
                   </div>
 
-                  {/* Spread Info */}
-                  <div className="mt-3 text-center">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      Spread: {game.spread > 0 ? `${getTeamDisplayName(homeTeam, game.homeTeam)} -${game.spread}` : `${getTeamDisplayName(awayTeam, game.awayTeam)} +${Math.abs(game.spread)}`} | 
-                      Total: {game.total}
-                    </span>
-                  </div>
+
                 </div>
               </div>
             );

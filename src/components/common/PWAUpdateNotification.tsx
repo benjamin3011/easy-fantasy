@@ -151,26 +151,44 @@ const PWAUpdateNotification = () => {
       
       // Step 4: Clear browser storage (with error handling)
       try {
-        // Clear localStorage (but preserve essential user preferences AND update tracking)
+        // Clear localStorage (but preserve essential user preferences, auth data, AND update tracking)
         const essentialKeys = [
           'easy-fantasy-theme',
           'easy-fantasy-onboarding-completed',
-          'pwa-last-update' // Keep update tracking
+          'pwa-last-update', // Keep update tracking
+          'pwa-update-dismissed' // Keep dismissal tracking
         ];
+        
+        // Preserve Firebase auth persistence keys
+        const firebaseAuthKeys = Object.keys(localStorage).filter(key => 
+          key.startsWith('firebase:') || 
+          key.includes('firebaseLocalStorageDb') ||
+          key.includes('firebaseui::')
+        );
+        
+        const allEssentialKeys = [...essentialKeys, ...firebaseAuthKeys];
         const currentStorage = { ...localStorage };
         localStorage.clear();
         
-        // Restore essential keys
-        essentialKeys.forEach(key => {
+        // Restore essential keys including Firebase auth
+        allEssentialKeys.forEach(key => {
           if (currentStorage[key]) {
             localStorage.setItem(key, currentStorage[key]);
           }
         });
 
-        // Clear sessionStorage
-        sessionStorage.clear();
+        // Don't clear sessionStorage as it may contain Firebase auth state
+        // Only clear non-auth related session data
+        const sessionKeysToRemove = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const key = sessionStorage.key(i);
+          if (key && !key.startsWith('firebase:') && !key.includes('firebaseLocalStorageDb')) {
+            sessionKeysToRemove.push(key);
+          }
+        }
+        sessionKeysToRemove.forEach(key => sessionStorage.removeItem(key));
 
-        // Clear IndexedDB with timeout protection
+        // Clear IndexedDB with timeout protection (but preserve Firebase auth databases)
         if ('indexedDB' in window && indexedDB.databases) {
           const databases = await Promise.race([
             indexedDB.databases(),
@@ -180,25 +198,35 @@ const PWAUpdateNotification = () => {
           ]);
           
           if (databases.length > 0) {
-            await Promise.race([
-              Promise.all(
-                databases.map(db => {
-                  if (db.name) {
-                    return new Promise<void>((resolve, reject) => {
-                      const deleteRequest = indexedDB.deleteDatabase(db.name!);
-                      deleteRequest.onsuccess = () => resolve();
-                      deleteRequest.onerror = () => reject(deleteRequest.error);
-                      // Timeout for individual DB deletion
-                      setTimeout(() => resolve(), 2000);
-                    });
-                  }
-                  return Promise.resolve();
-                })
-              ),
-              new Promise<void>((_, reject) => 
-                setTimeout(() => reject(new Error('IndexedDB clearing timeout')), 5000)
-              )
-            ]);
+            // Only clear non-Firebase databases
+            const databasesToDelete = databases.filter(db => 
+              db.name && 
+              !db.name.includes('firebase') && 
+              !db.name.includes('firestore') &&
+              !db.name.includes('auth')
+            );
+            
+            if (databasesToDelete.length > 0) {
+              await Promise.race([
+                Promise.all(
+                  databasesToDelete.map(db => {
+                    if (db.name) {
+                      return new Promise<void>((resolve, reject) => {
+                        const deleteRequest = indexedDB.deleteDatabase(db.name!);
+                        deleteRequest.onsuccess = () => resolve();
+                        deleteRequest.onerror = () => reject(deleteRequest.error);
+                        // Timeout for individual DB deletion
+                        setTimeout(() => resolve(), 2000);
+                      });
+                    }
+                    return Promise.resolve();
+                  })
+                ),
+                new Promise<void>((_, reject) => 
+                  setTimeout(() => reject(new Error('IndexedDB clearing timeout')), 5000)
+                )
+              ]);
+            }
           }
         }
         
@@ -236,11 +264,15 @@ const PWAUpdateNotification = () => {
       `;
       document.body.appendChild(updateToast);
 
-      // Step 6: Wait briefly, then reload
+      // Step 6: Store update timestamp BEFORE reload to prevent double notifications
+      const updateTimestamp = Date.now();
+      localStorage.setItem('pwa-last-update', updateTimestamp.toString());
+      localStorage.setItem('pwa-update-dismissed', updateTimestamp.toString()); // Also set dismissal to prevent immediate re-showing
+      
+      // Wait briefly, then reload
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Step 7: Force reload with cache busting and update timestamp
-      const updateTimestamp = Date.now();
       if (import.meta.env.DEV) console.log('Forcing page reload with update timestamp:', updateTimestamp);
       window.location.href = window.location.href.split('?')[0] + '?updated=' + updateTimestamp;
       

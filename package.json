@@ -8,7 +8,11 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "generate:pwa-assets": "pwa-asset-generator src/assets/logo.svg public/icons --manifest public/manifest.webmanifest --index index.html --background \"#ffffff\" --icon-only"
+    "generate:pwa-assets": "pwa-asset-generator src/assets/logo.svg public/icons --manifest public/manifest.webmanifest --index index.html --background \"#ffffff\" --icon-only",
+    "deploy": "npm run build && firebase deploy --only hosting",
+    "deploy:hosting": "npm run build && firebase deploy --only hosting",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:all": "npm run build && firebase deploy"
   },
   "dependencies": {
     "@sentry/react": "^9.32.0",

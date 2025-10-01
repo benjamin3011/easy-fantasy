@@ -74,7 +74,7 @@ export function isCaptainSelectionLocked(lineup: Record<string, SelectableEntity
 /**
  * Get lock status for captain selection with reason
  * Captain selection is locked if:
- * 1. No captain selected: ANY player's game has started
+ * 1. No captain selected: Only show global lock if ALL players' games have started
  * 2. Captain selected: The captain's own game has started
  */
 export function getCaptainLockStatus(
@@ -88,27 +88,23 @@ export function getCaptainLockStatus(
     entity && entity.entityType === 'player'
   ) as SelectableEntity[];
   
-  // If no captain is currently selected, lock when ANY player's game starts
+  // If no captain is currently selected, only lock if ALL players' games have started
   if (!currentCaptainSlotKey) {
     const lockedPlayers = playerEntities.filter(entity => isEntityGameLocked(entity));
+    const availablePlayers = playerEntities.filter(entity => !isEntityGameLocked(entity));
     
-    if (lockedPlayers.length === 0) {
-      return {
-        isLocked: false,
-        message: ''
-      };
-    }
-    
-    if (lockedPlayers.length === 1) {
+    // Only lock captain selection if NO players are available (all games started)
+    if (availablePlayers.length === 0 && lockedPlayers.length > 0) {
       return {
         isLocked: true,
-        message: `Captain selection is locked because ${lockedPlayers[0].name}'s game has started.`
+        message: `Captain selection is locked because all players' games have started.`
       };
     }
     
+    // If some players are still available, allow captain selection
     return {
-      isLocked: true,
-      message: `Captain selection is locked because ${lockedPlayers.length} players' games have started.`
+      isLocked: false,
+      message: ''
     };
   }
   

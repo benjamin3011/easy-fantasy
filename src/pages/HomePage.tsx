@@ -150,7 +150,7 @@ export default function HomePage() {
             {/* Desktop: Show page title */}
             <div className="hidden md:flex items-center justify-between mb-2">
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                Dashboard
+                Gamecenter
               </h1>
               {user?.uid && <CachedDataIndicator queryKey={['userLeagues', user.uid]} />}
             </div>

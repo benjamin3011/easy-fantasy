@@ -194,7 +194,7 @@ const SimpleLineupSlot: React.FC<SimpleLineupSlotProps> = ({
             
             {/* Stats and Actions */}
             <div className="flex items-center justify-between">
-              <div className="text-center">
+              <div className="text-left">
                 {(() => {
                   const displayPoints = getEntityDisplayPoints(
                     selectedEntity, 

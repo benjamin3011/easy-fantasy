@@ -80,7 +80,7 @@ if ('serviceWorker' in navigator) {
                   
                   if (lastUpdate) {
                     const timeSinceUpdate = Date.now() - parseInt(lastUpdate);
-                    if (timeSinceUpdate < 60000) { // 1 minute
+                    if (timeSinceUpdate < 120000) { // 2 minutes - increased from 1 minute
                       if (import.meta.env.DEV) console.log('Skipping update notification - recently updated');
                       return;
                     }

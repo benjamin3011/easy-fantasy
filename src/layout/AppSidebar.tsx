@@ -7,11 +7,13 @@ import { useAuth } from "../context/AuthContext";
 // Assume these icons are imported from an icon library
 import {
   ChevronDownIcon,
-  GridIcon,
-  ListIcon,
   HorizontaLDots,
-  UserCircleIcon,
-  BoltIcon,
+  FootballIcon,
+  LineupIcon,
+  ResultsIcon,
+  TrophyIcon,
+  ProfileIcon,
+  AdminIcon,
 } from "../icons";
 import { useSidebar } from "../context/SidebarContext";
 
@@ -25,32 +27,32 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   {
-    icon: <GridIcon />,
-    name: "Home",
+    icon: <FootballIcon />,
+    name: "Game Center",
     path: "/",
   },
   {
-    icon: <ListIcon />,
+    icon: <TrophyIcon />,
     name: "Leagues",
     path: "/leagues",
   },
   {
-    icon: <BoltIcon />,
+    icon: <LineupIcon />,
     name: "Lineup",
     path: "/lineup",
   },
   {
-    icon: <BoltIcon />, // We'll change this icon later
+    icon: <ResultsIcon />,
     name: "Tips",
     path: "/tips",
   },
   {
-    icon: <UserCircleIcon />,
+    icon: <ProfileIcon />,
     name: "Profile",
     path: "/profile",
   },
   {
-    icon: <UserCircleIcon />,
+    icon: <AdminIcon />,
     name: "Admin",
     path: "/admin",
     adminOnly: true, // Mark as admin-only

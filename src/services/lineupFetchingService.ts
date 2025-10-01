@@ -236,8 +236,12 @@ export async function fetchSelectablePlayers(
     const querySnapshot = await getDocs(q);
 
     const players: SelectablePlayer[] = [];
-    querySnapshot.docs.forEach((doc) => {
+    
+    // First, create all player objects
+    const playerPromises = querySnapshot.docs.map(async (doc) => {
       const data = doc.data() as DocumentData;
+      const gameInfo = getWeekSpecificGameInfo(data.nflTeamId || data.teamID || data.teamId, weeklySchedule);
+      
       const player: SelectablePlayer = {
         id: doc.id,
         entityType: 'player',
@@ -247,16 +251,32 @@ export async function fetchSelectablePlayers(
         fullTeamName: data.nflTeamFullName || data.fullTeamName || data.nflTeamAbbreviation || data.team || 'Unknown Team',
         actualPPG: data.actualPPG || (data.seasonFantasyPoints && data.gamesPlayed ? data.seasonFantasyPoints / data.gamesPlayed : 0),
         usageCount: usageCounts?.[`player_${doc.id}`] || 0,
+        byeWeek: data.byeWeek, // Include bye week from database
         injuryStatus: data.injuryStatus || (data.injuryData ? {
           status: data.injuryData.designation || (data.injuryData.description ? 'Out' : 'Healthy'),
           details: data.injuryData.description
         } : { status: 'Healthy' }),
         headshotUrl: data.headshotUrl,
         rawSeasonStats: data.rawSeasonStats || data.seasonStats as RawSeasonStats || undefined,
-        ...getWeekSpecificGameInfo(data.nflTeamId || data.teamID || data.teamId, weeklySchedule)
+        ...gameInfo
       };
-      players.push(player);
+
+      // Fetch actual fantasy points if game has started
+      if (gameInfo.gameIdForWeek) {
+        try {
+          const actualPoints = await fetchActualFantasyPointsForGame(doc.id, 'player', gameInfo.gameIdForWeek);
+          player.actualFantasyPoints = actualPoints;
+        } catch (error) {
+          console.warn(`Failed to fetch actual points for player ${doc.id}:`, error);
+          player.actualFantasyPoints = undefined;
+        }
+      }
+
+      return player;
     });
+
+    const resolvedPlayers = await Promise.all(playerPromises);
+    players.push(...resolvedPlayers);
 
     performanceCache.set(cacheKey, players, 'players');
     addBreadcrumb(`Fetched ${players.length} players for ${positionKey}`, 'firebase', 'info');
@@ -286,7 +306,7 @@ export async function fetchSelectableTeams(
     sortingValue: number;
   }
 
-  const teams = querySnapshot.docs.map((doc): TeamWithSorting => {
+  const teamPromises = querySnapshot.docs.map(async (doc): Promise<TeamWithSorting> => {
     const data = doc.data() as DocumentData;
     const entityUsageKey = `team_${doc.id}`;
     const currentUsage = usageCounts && usageCounts[entityUsageKey] ? usageCounts[entityUsageKey] : 0;
@@ -319,7 +339,7 @@ export async function fetchSelectableTeams(
 
     const { opponentForWeek, gameTimeEpochForWeek, gameIdForWeek } = getWeekSpecificGameInfo(doc.id, weeklySchedule);
 
-    return {
+    const team: TeamWithSorting = {
       id: doc.id,
       name: data.fullName || data.name || `Team ${data.abbreviation || doc.id}`,
       entityType: 'team',
@@ -343,7 +363,22 @@ export async function fetchSelectableTeams(
       seasonFP_ST: data.seasonFP_ST || 0,
       sortingValue: sortingValue,
     };
+
+    // Fetch actual fantasy points if game has started
+    if (gameIdForWeek) {
+      try {
+        const actualPoints = await fetchActualFantasyPointsForGame(doc.id, 'team', gameIdForWeek, positionKey);
+        team.actualFantasyPoints = actualPoints;
+      } catch (error) {
+        console.warn(`Failed to fetch actual points for team ${doc.id}:`, error);
+        team.actualFantasyPoints = undefined;
+      }
+    }
+
+    return team;
   });
+
+  const teams = await Promise.all(teamPromises);
   
   // Sort by sortingValue instead of actualPPG to handle new season scenario
   const sortedTeams = teams.sort((a, b) => b.sortingValue - a.sortingValue);

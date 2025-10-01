@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
-import { GridIcon, BoltIcon, ListIcon, UserCircleIcon, ShootingStarIcon } from '../../icons';
+import { FootballIcon, LineupIcon, ResultsIcon, TrophyIcon, ProfileIcon } from '../../icons';
 import { useSidebar } from '../../context/SidebarContext';
 
 interface TabItem {
@@ -15,27 +15,27 @@ const tabItems: TabItem[] = [
   {
     name: 'Home',
     path: '/',
-    icon: <GridIcon />,
+    icon: <FootballIcon />,
   },
   {
     name: 'Leagues',
     path: '/leagues',
-    icon: <ListIcon />,
+    icon: <TrophyIcon />,
   },
   {
     name: 'Lineup',
     path: '/lineup',
-    icon: <BoltIcon />,
+    icon: <LineupIcon />,
   },
   {
     name: 'Tips',
     path: '/tips',
-    icon: <ShootingStarIcon />, // Perfect for predictions/tips
+    icon: <ResultsIcon />, // Perfect for tracking results/predictions
   },
   {
     name: 'Profile',
     path: '/profile',
-    icon: <UserCircleIcon />,
+    icon: <ProfileIcon />,
   },
 ];
 

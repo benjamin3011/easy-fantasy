@@ -41,7 +41,7 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
     if (!enablePullToRefresh || !containerRef.current) return;
     
     const scrollTop = containerRef.current.scrollTop;
-    isScrolledToTop.current = scrollTop <= 1; // Allow 1px tolerance
+    isScrolledToTop.current = scrollTop <= 5; // Increased tolerance to 5px to reduce sensitivity
   }, [enablePullToRefresh]);
 
   useEffect(() => {
@@ -51,8 +51,8 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
     if (container) {
       const handleScroll = () => {
         checkScrollTop();
-        // Reset pull state if user scrolls down
-        if (container.scrollTop > 5 && isPulling) {
+        // Reset pull state if user scrolls down or is not at top
+        if (container.scrollTop > 10 && isPulling) {
           setIsPulling(false);
           setPullDistance(0);
           shouldPreventDefault.current = false;
@@ -75,9 +75,9 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
     
     // Store initial scroll position
     initialScrollTop.current = container.scrollTop;
-    isScrolledToTop.current = initialScrollTop.current <= 1;
+    isScrolledToTop.current = initialScrollTop.current <= 5; // Increased tolerance
     
-    // Only start pull detection if we're at the top
+    // Only start pull detection if we're truly at the top
     if (isScrolledToTop.current) {
       startY.current = e.touches[0].clientY;
       currentY.current = startY.current;
@@ -94,12 +94,14 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
     currentY.current = e.touches[0].clientY;
     const deltaY = currentY.current - startY.current;
     
-    // Detect if this is a quick swipe (should not trigger pull-to-refresh)
+    // Detect if this is a quick swipe or scroll gesture (should not trigger pull-to-refresh)
     const touchDuration = Date.now() - touchStartTime.current;
-    const isQuickSwipe = touchDuration < 100 && Math.abs(deltaY) > 30;
+    const isQuickSwipe = touchDuration < 150 && Math.abs(deltaY) > 40; // More tolerant timing, higher distance
+    const isScrollingUp = deltaY < 0; // User is scrolling up, not pulling down
     
-    if (isQuickSwipe) {
-      // Reset pull state for quick swipes
+    // If user is scrolling up or doing a quick swipe, don't trigger pull-to-refresh
+    if (isQuickSwipe || isScrollingUp) {
+      // Reset pull state for quick swipes or upward scrolls
       if (isPulling) {
         setIsPulling(false);
         setPullDistance(0);
@@ -110,15 +112,16 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
     
     // Only handle pull-to-refresh if:
     // 1. We started at the top
-    // 2. We're moving downward (deltaY > 0)
+    // 2. We're moving downward (deltaY > 0) with sufficient distance
     // 3. We're still at or near the top
-    // 4. It's not a quick swipe
+    // 4. It's not a quick swipe or scroll gesture
     const currentScrollTop = container.scrollTop;
-    const isStillAtTop = currentScrollTop <= 1;
+    const isStillAtTop = currentScrollTop <= 5;
+    const hasMinimumPullDistance = deltaY >= 15; // Require at least 15px downward pull
     
-    if (isScrolledToTop.current && deltaY > 0 && isStillAtTop && !isQuickSwipe) {
+    if (isScrolledToTop.current && deltaY > 0 && isStillAtTop && hasMinimumPullDistance) {
       // Only start pulling if we've moved a minimum distance
-      if (deltaY > 15) { // Increased threshold
+      if (deltaY > 20) { // Threshold for starting pull state
         if (!isPulling) {
           setIsPulling(true);
         }
@@ -220,7 +223,7 @@ const PullToRefresh: React.FC<PullToRefreshProps> = ({
     return '';
   };
 
-  const showIndicator = pullDistance > 25 || isRefreshing; // Increased threshold to reduce flicker
+  const showIndicator = pullDistance > 30 || isRefreshing; // Show indicator sooner for better feedback
   const indicatorHeight = Math.max(pullDistance, 40);
 
   return (

@@ -3,15 +3,336 @@ import { logger } from "firebase-functions/v2";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 // Import shared config/secrets
-import { leagueOptions } from './config'; // Use league specific options
+import { leagueOptions, config } from './config'; // Use league specific options
+import { calculateCurrentNFLWeek } from './common';
+
+// Import what we need for odds fetching
+import axios from 'axios';
+import { hosts, secrets } from './config';
 
 // Get db instance (initialized in index.ts)
 const db = admin.firestore();
 
+// --- Helper Functions ---
+
+// --- Types for Odds Fetching (copied from gameTips.ts) ---
+interface BettingOdds {
+  sportsBook: string;
+  odds: {
+    awayTeamMLOdds: string;
+    homeTeamMLOdds: string;
+    awayTeamSpread: string;
+    homeTeamSpread: string;
+    totalOver: string;
+    totalUnder: string;
+    impliedTotals?: {
+      awayTotal: string;
+      homeTotal: string;
+    };
+  };
+}
+
+interface BettingOddsResponse {
+  statusCode: number;
+  body: {
+    gameID: string;
+    gameDate: string;
+    teamIDHome: string;
+    teamIDAway: string;
+    homeTeam: string;
+    awayTeam: string;
+    sportsBooks: BettingOdds[];
+  };
+}
+
+interface TippableGame {
+  gameId: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  gameTime: number;
+  homeWinProbability: number;
+  awayWinProbability: number;
+  spread: number;
+  total: number;
+  gameDate: string;
+}
+
+// --- Odds Fetching Functions (copied from gameTips.ts) ---
+
+const getTank01Headers = () => ({
+  'x-rapidapi-key': secrets.TANK01_KEY.value(),
+  'x-rapidapi-host': hosts.TANK01_NFL_API,
+});
+
+function moneylineToWinProbability(odds: string): number {
+  const cleanOdds = odds.replace(/[+\s]/g, '');
+  const numericOdds = parseFloat(cleanOdds);
+  
+  if (isNaN(numericOdds)) return 50;
+  
+  if (numericOdds > 0) {
+    return (100 / (numericOdds + 100)) * 100;
+  } else {
+    return (Math.abs(numericOdds) / (Math.abs(numericOdds) + 100)) * 100;
+  }
+}
+
+function calculateAverageSpread(sportsBooks: BettingOdds[]): number {
+  const spreads = sportsBooks
+    .map(book => parseFloat(book.odds.homeTeamSpread))
+    .filter(spread => !isNaN(spread));
+  
+  if (spreads.length === 0) return 0;
+  return spreads.reduce((sum, spread) => sum + spread, 0) / spreads.length;
+}
+
+function calculateAverageTotal(sportsBooks: BettingOdds[]): number {
+  const totals = sportsBooks
+    .map(book => parseFloat(book.odds.totalOver))
+    .filter(total => !isNaN(total));
+  
+  if (totals.length === 0) return 45;
+  return totals.reduce((sum, total) => sum + total, 0) / totals.length;
+}
+
+function calculateConsensusWinProbabilities(sportsBooks: BettingOdds[]): { home: number; away: number } {
+  const homeProbs = sportsBooks
+    .map(book => moneylineToWinProbability(book.odds.homeTeamMLOdds))
+    .filter(prob => !isNaN(prob) && prob > 0);
+  
+  const awayProbs = sportsBooks
+    .map(book => moneylineToWinProbability(book.odds.awayTeamMLOdds))
+    .filter(prob => !isNaN(prob) && prob > 0);
+  
+  const avgHomeProb = homeProbs.length > 0 
+    ? homeProbs.reduce((sum, prob) => sum + prob, 0) / homeProbs.length 
+    : 50;
+  
+  const avgAwayProb = awayProbs.length > 0 
+    ? awayProbs.reduce((sum, prob) => sum + prob, 0) / awayProbs.length 
+    : 50;
+  
+  const total = avgHomeProb + avgAwayProb;
+  return {
+    home: Math.round((avgHomeProb / total) * 100),
+    away: Math.round((avgAwayProb / total) * 100)
+  };
+}
+
+async function fetchDayBettingOdds(gameDate: string): Promise<Record<string, BettingOddsResponse> | null> {
+  try {
+    logger.info(`Fetching betting odds for all games on ${gameDate}`);
+    
+    const response = await axios.get<{ statusCode: number; body: Array<{
+      gameID: string;
+      gameDate: string;
+      teamIDHome: string;
+      teamIDAway: string;
+      homeTeam: string;
+      awayTeam: string;
+      sportsBooks: BettingOdds[];
+    }> }>(
+      `https://${hosts.TANK01_NFL_API}/getNFLBettingOdds`,
+      {
+        params: {
+          gameDate: gameDate.replace(/-/g, ''),
+          itemFormat: 'list',
+          impliedTotals: 'true'
+        },
+        headers: getTank01Headers(),
+      }
+    );
+
+    if (response.data.statusCode !== 200) {
+      logger.warn(`Betting odds API returned non-200 status for date ${gameDate}: ${response.data.statusCode}`);
+      return null;
+    }
+
+    const oddsMap: Record<string, BettingOddsResponse> = {};
+    
+    if (Array.isArray(response.data.body)) {
+      for (const gameOdds of response.data.body) {
+        if (gameOdds.gameID) {
+          const wrappedOdds: BettingOddsResponse = {
+            statusCode: 200,
+            body: gameOdds
+          };
+          oddsMap[gameOdds.gameID] = wrappedOdds;
+        }
+      }
+      logger.info(`Fetched odds for ${Object.keys(oddsMap).length} games on ${gameDate}`);
+    } else {
+      const singleGameOdds = response.data.body as unknown as BettingOddsResponse['body'];
+      if (singleGameOdds?.gameID) {
+        const wrappedOdds: BettingOddsResponse = {
+          statusCode: 200,
+          body: singleGameOdds as BettingOddsResponse['body']
+        };
+        oddsMap[singleGameOdds.gameID] = wrappedOdds;
+        logger.info(`Fetched odds for single game: ${singleGameOdds.gameID}`);
+      }
+    }
+
+    return oddsMap;
+  } catch (error) {
+    logger.error(`Error fetching betting odds for date ${gameDate}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Create tips poll for the current week when a new league is created
+ * Includes full betting odds fetching for immediate availability
+ */
+async function createInitialTipsPollForLeague(leagueId: string): Promise<void> {
+  try {
+    const currentWeek = calculateCurrentNFLWeek();
+    const currentSeason = parseInt(config.CURRENT_NFL_SEASON);
+    
+    logger.info(`Creating initial tips poll with betting odds for new league ${leagueId}, week ${currentWeek}, season ${currentSeason}`);
+    
+    // Check if tips poll already exists
+    const tipsPollId = `${leagueId}_week_${currentWeek}_season_${currentSeason}`;
+    const existingPoll = await db.collection('weeklyTips').doc(tipsPollId).get();
+    
+    if (existingPoll.exists) {
+      logger.info(`Tips poll already exists for league ${leagueId}, week ${currentWeek}, skipping creation`);
+      return;
+    }
+    
+    // Get weekly schedule
+    const scheduleDoc = await db.collection('nfl_schedules').doc(`${currentSeason}_week_${currentWeek}`).get();
+    
+    if (!scheduleDoc.exists) {
+      logger.warn(`No schedule found for week ${currentWeek}, season ${currentSeason} - cannot create tips poll for new league ${leagueId}`);
+      return;
+    }
+    
+    const scheduleData = scheduleDoc.data();
+    const games = scheduleData?.games || [];
+    
+    if (games.length === 0) {
+      logger.warn(`No games found for week ${currentWeek} - cannot create tips poll for new league ${leagueId}`);
+      return;
+    }
+    
+    // Group games by date for batch odds fetching
+    const gamesByDate: Record<string, typeof games> = {};
+    for (const game of games) {
+      const gameDate = game.gameDate || new Date().toISOString().split('T')[0];
+      if (!gamesByDate[gameDate]) {
+        gamesByDate[gameDate] = [];
+      }
+      gamesByDate[gameDate].push(game);
+    }
+
+    // Fetch betting odds for all dates (batch approach)
+    const allOddsMap: Record<string, BettingOddsResponse> = {};
+    for (const gameDate of Object.keys(gamesByDate)) {
+      logger.info(`Fetching odds for ${gamesByDate[gameDate].length} games on ${gameDate}`);
+      const dayOdds = await fetchDayBettingOdds(gameDate);
+      if (dayOdds) {
+        Object.assign(allOddsMap, dayOdds);
+      }
+    }
+
+    logger.info(`Total odds fetched for ${Object.keys(allOddsMap).length} games across ${Object.keys(gamesByDate).length} dates`);
+
+    // Create tippable games using fetched odds
+    const tippableGames: TippableGame[] = [];
+    let firstGameTime = Date.now() + (7 * 24 * 60 * 60 * 1000); // Default to 1 week from now
+
+    for (const game of games) {
+      const gameDate = game.gameDate || new Date().toISOString().split('T')[0];
+      const bettingData = allOddsMap[game.gameID];
+      
+      // Parse game time
+      let gameTime;
+      if (game.gameTime_epoch) {
+        const timeNum = parseInt(game.gameTime_epoch);
+        gameTime = timeNum * 1000;
+        logger.info(`DEBUG: Game ${game.gameID} - epoch: ${game.gameTime_epoch} -> ${timeNum} -> ${new Date(gameTime).toISOString()}`);
+      } else {
+        gameTime = Date.now() + (7 * 24 * 60 * 60 * 1000); // 1 week from now
+        logger.warn(`DEBUG: Game ${game.gameID} has no gameTime_epoch, using far future: ${new Date(gameTime).toISOString()}`);
+      }
+      if (gameTime < firstGameTime) {
+        firstGameTime = gameTime;
+      }
+
+      if (bettingData && bettingData.body.sportsBooks.length > 0) {
+        const winProbs = calculateConsensusWinProbabilities(bettingData.body.sportsBooks);
+        const avgSpread = calculateAverageSpread(bettingData.body.sportsBooks);
+        const avgTotal = calculateAverageTotal(bettingData.body.sportsBooks);
+
+        logger.info(`Using betting odds for game ${game.gameID}: spread=${avgSpread.toFixed(1)}, total=${avgTotal.toFixed(1)}, homeWin=${winProbs.home}%`);
+
+        tippableGames.push({
+          gameId: game.gameID,
+          homeTeam: game.home || bettingData.body.homeTeam,
+          awayTeam: game.away || bettingData.body.awayTeam,
+          homeTeamId: game.teamIDHome || bettingData.body.teamIDHome || '',
+          awayTeamId: game.teamIDAway || bettingData.body.teamIDAway || '',
+          gameTime: gameTime,
+          homeWinProbability: winProbs.home,
+          awayWinProbability: winProbs.away,
+          spread: avgSpread,
+          total: avgTotal,
+          gameDate: gameDate
+        });
+      } else {
+        // Create game without betting data (50/50 probability)
+        logger.warn(`No betting odds found for game ${game.gameID}, using default probabilities`);
+        tippableGames.push({
+          gameId: game.gameID,
+          homeTeam: game.home || 'HOME',
+          awayTeam: game.away || 'AWAY',
+          homeTeamId: game.teamIDHome || '',
+          awayTeamId: game.teamIDAway || '',
+          gameTime: gameTime,
+          homeWinProbability: 50,
+          awayWinProbability: 50,
+          spread: 0,
+          total: 45,
+          gameDate: gameDate
+        });
+      }
+    }
+
+    // Create the tips poll document
+    const now = admin.firestore.Timestamp.now();
+    const lockTime = admin.firestore.Timestamp.fromMillis(firstGameTime - (30 * 60 * 1000));
+
+    const tipsPoll = {
+      leagueId,
+      season: currentSeason,
+      week: currentWeek,
+      games: tippableGames,
+      isLocked: false,
+      lockTime,
+      createdAt: now,
+      lastUpdated: now,
+      totalGames: tippableGames.length
+    };
+
+    await db.collection('weeklyTips').doc(tipsPollId).set(tipsPoll);
+
+    logger.info(`Successfully created initial tips poll for league ${leagueId} with ${tippableGames.length} games and real betting odds`);
+  } catch (error) {
+    logger.error(`Error creating initial tips poll for league ${leagueId}:`, error);
+    // Don't throw error - league creation should still succeed even if tips poll creation fails
+  }
+}
+
 // --- Callable Functions (Exported) ---
 
 // Create League
-export const createLeague = onCall({ ...leagueOptions }, async (request) => {
+export const createLeague = onCall({ 
+  ...leagueOptions,
+  secrets: [secrets.TANK01_KEY] // Add TANK01 API access for odds fetching
+}, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Authentication is required to create a league.');
   }
@@ -52,7 +373,15 @@ export const createLeague = onCall({ ...leagueOptions }, async (request) => {
       memberUids: [uid],
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-    logger.log(`League created: ${leagueRef.id} by ${uid}`); return { id: leagueRef.id };
+    
+    logger.log(`League created: ${leagueRef.id} by ${uid}`);
+    
+    // Create initial tips poll for current week if weekly tips are enabled
+    if (enableWeeklyTips) {
+      await createInitialTipsPollForLeague(leagueRef.id);
+    }
+    
+    return { id: leagueRef.id };
   } catch (error: unknown) { /* ... error handling ... */
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("Internal error creating league:", { error: errorMessage, detail: error, userId: uid });
@@ -183,7 +512,10 @@ export const updateLeagueCaptainSettings = onCall({ ...leagueOptions }, async (r
 });
 
 // Update League Weekly Tips Settings
-export const updateLeagueWeeklyTipsSettings = onCall({ ...leagueOptions }, async (request) => {
+export const updateLeagueWeeklyTipsSettings = onCall({ 
+  ...leagueOptions,
+  secrets: [secrets.TANK01_KEY] // Add TANK01 API access for odds fetching when enabling tips
+}, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Authentication is required to update league settings.');
   }
@@ -215,6 +547,11 @@ export const updateLeagueWeeklyTipsSettings = onCall({ ...leagueOptions }, async
     await leagueRef.update({
       enableWeeklyTips,
     });
+
+    // If enabling weekly tips and tips weren't enabled before, create tips poll for current week
+    if (enableWeeklyTips && !leagueData.enableWeeklyTips) {
+      await createInitialTipsPollForLeague(leagueId);
+    }
 
     logger.log(`League ${leagueId} weekly tips settings updated by admin ${uid}: enabled=${enableWeeklyTips}`);
     return { success: true, message: 'League weekly tips settings updated successfully.' };

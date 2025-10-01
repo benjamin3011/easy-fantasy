@@ -57,7 +57,7 @@ const SimpleEntitySelectionPanel: React.FC = () => {
     fetchSelectableTeams
   } = useLineupStore();
 
-  const { hasGameStarted, actualPoints, captainSlotKey, captainMultiplier } = useLineupPoints();
+  const { captainSlotKey, captainMultiplier } = useLineupPoints();
   const [searchTerm, setSearchTerm] = useState('');
   const [hideExhausted, setHideExhausted] = useState<boolean>(false);
   const [hideLowRemaining, setHideLowRemaining] = useState<boolean>(false);
@@ -282,7 +282,7 @@ const SimpleEntitySelectionPanel: React.FC = () => {
                     className={`relative p-4 border rounded-lg transition-colors ${
                       isCurrentlySelected
                         ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
-                        : isGameLocked
+                        : isGameLocked || isOnByeThisWeek
                         ? 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 opacity-65'
                         : canSelect
                         ? 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer'
@@ -367,10 +367,12 @@ const SimpleEntitySelectionPanel: React.FC = () => {
                         {/* Points (PPG or actual) */}
                         <div className="text-right min-w-[60px]">
                           {(() => {
+                            // For selection panel, only show actual points if THIS entity's game has started
+                            const entityGameStarted = isEntityGameLocked(entity);
                             const displayPoints = getEntityDisplayPoints(
                               entity, 
-                              hasGameStarted, 
-                              actualPoints[entity.id],
+                              entityGameStarted, // Use individual game status instead of global hasGameStarted
+                              entity.actualFantasyPoints, // Use entity's own actual points instead of lineup context
                               selectedPosition.key,
                               captainSlotKey,
                               captainMultiplier
