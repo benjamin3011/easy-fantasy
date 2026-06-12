@@ -308,8 +308,11 @@ export async function fetchSelectableTeams(
 
   const teamPromises = querySnapshot.docs.map(async (doc): Promise<TeamWithSorting> => {
     const data = doc.data() as DocumentData;
-    const entityUsageKey = `team_${doc.id}`;
-    const currentUsage = usageCounts && usageCounts[entityUsageKey] ? usageCounts[entityUsageKey] : 0;
+    // For teams, usage is tracked per position (new format)
+    // Fall back to old global format for backwards compatibility
+    const newFormatKey = `team_${doc.id}_${positionKey}`;
+    const oldFormatKey = `team_${doc.id}`;
+    const currentUsage = usageCounts && (usageCounts[newFormatKey] ?? usageCounts[oldFormatKey]) || 0;
     
     const gamesPlayed = data.gamesPlayed || 0; 
     let seasonFPForUnit = 0;
@@ -547,8 +550,11 @@ export async function fetchSelectableTeamById(
 
   if (teamDocSnap.exists()) {
     const data = teamDocSnap.data() as DocumentData;
-    const entityUsageKey = `team_${teamId}`;
-    const currentUsage = usageCounts && usageCounts[entityUsageKey] ? usageCounts[entityUsageKey] : 0;
+    // For teams, usage is tracked per position (new format)
+    // Fall back to old global format for backwards compatibility
+    const newFormatKey = positionKey ? `team_${teamId}_${positionKey}` : `team_${teamId}`;
+    const oldFormatKey = `team_${teamId}`;
+    const currentUsage = usageCounts && (usageCounts[newFormatKey] ?? usageCounts[oldFormatKey]) || 0;
 
     const gamesPlayed = data.gamesPlayed || 0;
     let seasonFPForUnit = 0;

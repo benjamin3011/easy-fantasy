@@ -2,7 +2,7 @@ import { getApp } from 'firebase/app';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   SaveLineupPayload, SaveLineupResult,
-  AdminRolePayload, GenericResult, EmptyInput,
+  AdminRolePayload, GenericResult, EmptyInput, TestNotificationResult,
   FetchStatsOrSchedulePayload, CalculateScoresPayload,
   CreateLeaguePayload, CreateLeagueResult,
   JoinLeagueByCodePayload, JoinLeagueByCodeResult,
@@ -53,9 +53,13 @@ export const calculateTipsResultsCallable = httpsCallable<{ leagueId: string; we
 // Auto-settings management
 export const updateLeagueAutoSettingsCallable = httpsCallable<UpdateLeagueAutoSettingsPayload, GenericResult>(functions, 'updateLeagueAutoSettings');
 
+// Notifications
+export const sendTestNotificationCallable = httpsCallable<undefined, TestNotificationResult>(functions, 'sendTestNotification');
+
 // Health/Integrity
-import type { HealthCheckStandingsPayload, RepairProphetTotalsPayload, RepairProphetTotalsResult, RepairSeasonFantasyPointsPayload, RepairSeasonFantasyPointsResult } from '../types/functions';
+import type { HealthCheckStandingsPayload, RepairProphetTotalsPayload, RepairProphetTotalsResult, RepairSeasonFantasyPointsPayload, RepairSeasonFantasyPointsResult, ResetSeasonStandingsPayload, ResetSeasonStandingsResult } from '../types/functions';
 export const healthCheckStandingsCallable = httpsCallable<HealthCheckStandingsPayload, GenericResult>(functions, 'healthCheckStandings');
+export const resetSeasonStandingsCallable = httpsCallable<ResetSeasonStandingsPayload, ResetSeasonStandingsResult>(functions, 'resetSeasonStandings');
 export const systemHealthCheckCallable = httpsCallable(functions, 'systemHealthCheck');
 export const repairSystemIssuesCallable = httpsCallable(functions, 'repairSystemIssues');
 

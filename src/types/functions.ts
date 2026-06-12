@@ -31,6 +31,10 @@ export interface GenericResult {
   message: string;
 }
 
+export interface TestNotificationResult extends GenericResult {
+  channel?: 'fcm' | 'webpush' | 'inapp';
+}
+
 // Payload for addAdminRole
 export interface AdminRolePayload {
   uid: string;
@@ -55,6 +59,21 @@ export interface HealthCheckStandingsPayload {
   season?: number;
   leagueId?: string;
   dryRun?: boolean;
+}
+
+// Payload for resetting league standings before a new season
+export interface ResetSeasonStandingsPayload {
+  leagueId?: string;
+  dryRun?: boolean;
+}
+
+export interface ResetSeasonStandingsResult {
+  success: boolean;
+  message: string;
+  dryRun: boolean;
+  leaguesMatched: number;
+  leaguesUpdated: number;
+  membersReset: number;
 }
 
 // --- Types for League Functions (to be moved/consolidated from leagues.ts) ---

@@ -585,6 +585,17 @@ async function checkPlayerPerformanceNotifications(
   season: number
 ): Promise<void> {
   try {
+    const currentSeason = getCurrentSeason();
+    if (season !== currentSeason) {
+      logger.info(`Skipping performance notifications for old season ${season}; current season is ${currentSeason}.`, {
+        playerId,
+        playerName,
+        gameId,
+        week,
+      });
+      return;
+    }
+
     // Find all users who have this player in their lineups for this week
     const lineupCollectionGroup = db.collectionGroup('weeklyLineups');
     const lineupQuery = lineupCollectionGroup
@@ -640,7 +651,7 @@ async function checkPlayerPerformanceNotifications(
         if (!notificationType) continue;
 
         // Create notification tracking ID to prevent duplicates
-        const notificationId = `${userId}_${playerId}_${notificationType}_${gameId}_${week}`;
+        const notificationId = `${userId}_${playerId}_${notificationType}_${gameId}_${season}_${week}`;
         
         // Check if we've already sent this notification
         try {
@@ -669,12 +680,17 @@ async function checkPlayerPerformanceNotifications(
           // Continue anyway - better to potentially send duplicate than miss notification
         }
 
-        // Fetch user prefs and token
+        // Fetch user prefs and available push channels
         const userSnap = await db.collection('users').doc(userId).get();
-        const userData = userSnap.data() as { fcmToken?: string; notificationPreferences?: { enabled?: boolean; scoringAlerts?: boolean; captainSuccessAlerts?: boolean } } | undefined;
+        const userData = userSnap.data() as {
+          fcmToken?: string;
+          webPushSubscription?: { endpoint?: string };
+          notificationPreferences?: { enabled?: boolean; scoringAlerts?: boolean; captainSuccessAlerts?: boolean };
+        } | undefined;
         const fcmToken = userData?.fcmToken;
+        const hasWebPushSubscription = Boolean(userData?.webPushSubscription?.endpoint);
         const prefs = userData?.notificationPreferences || {};
-        if (!fcmToken || !prefs.enabled || !prefs.scoringAlerts) continue;
+        if ((!fcmToken && !hasWebPushSubscription) || !prefs.enabled || !prefs.scoringAlerts) continue;
         if (notificationType === 'captain_success' && prefs.captainSuccessAlerts === false) continue;
 
         const title = notificationType === 'captain_success'
@@ -688,21 +704,36 @@ async function checkPlayerPerformanceNotifications(
           ? `${playerName} is having a huge game with ${displayPoints} points!`
           : `${playerName} just scored! Now at ${displayPoints} fantasy points`;
 
-        try {
-          // Send FCM notification
-          await admin.messaging().send({
-            token: fcmToken,
-            notification: { title, body },
-            data: {
-              type: notificationType,
-              playerName,
-              points: String(displayPoints),
-              gameId,
-              week: String(week),
-              season: String(season),
-            },
-          });
-          
+        const notificationData = {
+          type: notificationType,
+          playerName,
+          points: String(displayPoints),
+          gameId,
+          week: String(week),
+          season: String(season),
+        };
+
+        let sentPush = false;
+
+        if (fcmToken) {
+          try {
+            await admin.messaging().send({
+              token: fcmToken,
+              notification: { title, body },
+              data: notificationData,
+            });
+            sentPush = true;
+          } catch (sendErr) {
+            logger.warn(`Failed to send FCM performance alert to ${userId}`, sendErr);
+          }
+        }
+
+        if (hasWebPushSubscription) {
+          await sendWebPushToUser(userId, { title, body, data: notificationData });
+          sentPush = true;
+        }
+
+        if (sentPush) {
           // Save notification to Firestore for in-app display
           const userNotificationRef = db.collection('users').doc(userId).collection('notifications').doc();
           await userNotificationRef.set({
@@ -711,23 +742,12 @@ async function checkPlayerPerformanceNotifications(
             body,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             readAt: null,
-            data: {
-              playerName,
-              points: String(displayPoints),
-              gameId,
-              week: String(week),
-              season: String(season),
-            },
+            data: notificationData,
             channel: 'push',
             source: 'performance_alert'
           });
           
-          logger.info(`Performance alert sent to ${userId} (${notificationType}) - FCM + Firestore saved`);
-          
-          // Attempt Web Push as well
-          await sendWebPushToUser(userId, { title, body, data: { type: notificationType, playerName, points: String(displayPoints), gameId, week, season } });
-        } catch (sendErr) {
-          logger.warn(`Failed to send performance alert to ${userId}`, sendErr);
+          logger.info(`Performance alert sent to ${userId} (${notificationType}) and saved to Firestore`);
         }
       }
     }
@@ -743,8 +763,8 @@ async function checkPlayerPerformanceNotifications(
  * Repair season fantasy points by recalculating from individual game stats
  */
 /**
- * Clean up old notification tracking records (older than 7 days)
- * Run periodically to prevent collection from growing too large
+ * Clean up old notification tracking records after the season window.
+ * Keep these long enough that reprocessing old box scores does not resend alerts.
  */
 export const cleanupNotificationTracking = onSchedule(
   {
@@ -756,10 +776,11 @@ export const cleanupNotificationTracking = onSchedule(
     logger.info('Starting notification tracking cleanup...');
     
     try {
-      const sevenDaysAgo = admin.firestore.Timestamp.fromDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+      const retentionDays = 210;
+      const cutoff = admin.firestore.Timestamp.fromDate(new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000));
       
       const oldNotificationsQuery = db.collection('notificationTracking')
-        .where('sentAt', '<', sevenDaysAgo)
+        .where('sentAt', '<', cutoff)
         .limit(500); // Process in batches
       
       const snapshot = await oldNotificationsQuery.get();

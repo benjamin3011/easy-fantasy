@@ -3,10 +3,24 @@ import { logger } from "firebase-functions/v2";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 // Import shared config/secrets
-import { adminOptions } from './config';
-import { FirestoreWeeklyLineup, FirestoreUser } from './types';
+import { adminOptions, config } from './config';
+import { FirestoreLeague, FirestoreWeeklyLineup, FirestoreUser } from './types';
 
 const db = admin.firestore();
+
+interface ResetSeasonStandingsPayload {
+  leagueId?: string;
+  dryRun?: boolean;
+}
+
+interface ResetSeasonStandingsResult {
+  success: boolean;
+  message: string;
+  dryRun: boolean;
+  leaguesMatched: number;
+  leaguesUpdated: number;
+  membersReset: number;
+}
 
 // Health check result types
 interface HealthCheckResult {
@@ -50,6 +64,100 @@ export const addAdminRole = onCall({ ...adminOptions }, async (request) => {
     throw new HttpsError('internal', 'Error assigning admin role. Check logs.');
   }
 });
+
+export const resetSeasonStandings = onCall(
+  { ...adminOptions, timeoutSeconds: 120 },
+  async (request): Promise<ResetSeasonStandingsResult> => {
+    if (request.auth?.token?.admin !== true) {
+      logger.warn("Permission denied for resetSeasonStandings.", { callerUid: request.auth?.uid });
+      throw new HttpsError('permission-denied', 'Admin access required.');
+    }
+
+    const payload = (request.data ?? {}) as ResetSeasonStandingsPayload;
+    const leagueId = typeof payload.leagueId === 'string' ? payload.leagueId.trim() : '';
+    const dryRun = payload.dryRun !== false;
+    const now = admin.firestore.Timestamp.now();
+
+    const leagueDocs: admin.firestore.DocumentSnapshot[] = [];
+    if (leagueId) {
+      const leagueSnap = await db.collection('leagues').doc(leagueId).get();
+      if (!leagueSnap.exists) {
+        throw new HttpsError('not-found', `League ${leagueId} not found.`);
+      }
+      leagueDocs.push(leagueSnap);
+    } else {
+      const leaguesSnap = await db.collection('leagues').get();
+      leagueDocs.push(...leaguesSnap.docs);
+    }
+
+    let leaguesUpdated = 0;
+    let membersReset = 0;
+    let batch = db.batch();
+    let batchOperations = 0;
+    const commitPromises: Promise<admin.firestore.WriteResult[]>[] = [];
+
+    for (const leagueDoc of leagueDocs) {
+      const leagueData = leagueDoc.data() as FirestoreLeague | undefined;
+      const members = leagueData?.members ?? [];
+      membersReset += members.length;
+
+      if (!dryRun) {
+        const resetMembers = members.map((member) => ({
+          ...member,
+          weeklyPoints: {},
+          totalSeasonPoints: 0,
+          lastUpdated: now,
+        }));
+
+        batch.update(leagueDoc.ref, {
+          members: resetMembers,
+          standingsResetAt: now,
+          standingsResetBy: request.auth.uid,
+          standingsResetSeason: config.CURRENT_NFL_SEASON,
+        });
+        batchOperations++;
+        leaguesUpdated++;
+
+        if (batchOperations >= 450) {
+          commitPromises.push(batch.commit());
+          batch = db.batch();
+          batchOperations = 0;
+        }
+      }
+    }
+
+    if (!dryRun && batchOperations > 0) {
+      commitPromises.push(batch.commit());
+    }
+    if (commitPromises.length > 0) {
+      await Promise.all(commitPromises);
+    }
+
+    const target = leagueId ? `league ${leagueId}` : 'all leagues';
+    const message = dryRun
+      ? `Dry run: would reset ${membersReset} members across ${leagueDocs.length} league(s) for ${config.CURRENT_NFL_SEASON}.`
+      : `Reset standings for ${membersReset} members across ${leaguesUpdated} league(s) for ${config.CURRENT_NFL_SEASON}.`;
+
+    logger.info('Season standings reset completed', {
+      callerUid: request.auth.uid,
+      target,
+      dryRun,
+      leaguesMatched: leagueDocs.length,
+      leaguesUpdated,
+      membersReset,
+      season: config.CURRENT_NFL_SEASON,
+    });
+
+    return {
+      success: true,
+      message,
+      dryRun,
+      leaguesMatched: leagueDocs.length,
+      leaguesUpdated,
+      membersReset,
+    };
+  }
+);
 
 // --- Comprehensive Health Check System ---
 

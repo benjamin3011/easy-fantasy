@@ -55,11 +55,15 @@ export const useUsageTracking = ({
         
         // Process picks from the lineup
         if (lineupData.picks) {
-          Object.values(lineupData.picks).forEach((pick: unknown) => {
+          Object.entries(lineupData.picks).forEach(([position, pick]: [string, unknown]) => {
             if (pick && typeof pick === 'object' && 'id' in pick && 'type' in pick) {
               const typedPick = pick as { id: string; type: string };
               if (typeof typedPick.id === 'string' && typeof typedPick.type === 'string') {
-                const key = `${typedPick.type}_${typedPick.id}`;
+                // For teams, include position in the key to track usage per position
+                // For players, use global key since player usage is across all uses
+                const key = typedPick.type === 'team' 
+                  ? `${typedPick.type}_${typedPick.id}_${position}`
+                  : `${typedPick.type}_${typedPick.id}`;
                 counts[key] = (counts[key] || 0) + 1;
               }
             }

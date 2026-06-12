@@ -18,6 +18,7 @@
     }
   ],
   "hosting": {
+    "site": "easy-fantasy",
     "public": "dist",
     "ignore": [
       "firebase.json",

@@ -317,6 +317,8 @@ export interface NotificationPreferences {
     // Lineup Management
     lineupDeadlineAlerts: boolean;
     lineupDeadlineMinutes: number; // How many minutes before game start to alert
+    tipsReminderAlerts: boolean;
+    tipsReminderMinutes: number;
     
     // Personal Performance  
     scoringAlerts: boolean;

@@ -6,6 +6,7 @@ import { autoAssistantOptions } from './config'; // Use auto-assistant specific 
 import { calculateCurrentNFLWeek } from './common';
 import { config } from './config';
 import { FirestoreWeeklySchedule, GameInfoForWeek, Player, Team } from './types';
+import { notifyUser } from './notifications';
 
 // Get db instance (initialized in index.ts)
 const db = admin.firestore();
@@ -77,28 +78,6 @@ function getEffectivePPG(entity: Player | Team): number {
   }
   
   return 8; // Final fallback
-}
-
-/**
- * Check if current time is within user's quiet hours
- */
-function isQuietHours(quietHours?: { enabled: boolean; start: string; end: string }): boolean {
-  if (!quietHours?.enabled) {
-    return false;
-  }
-  
-  const now = new Date();
-  const currentTime = now.getHours() * 100 + now.getMinutes(); // e.g., 1430 for 2:30 PM
-  
-  const startTime = parseInt(quietHours.start.replace(':', ''));
-  const endTime = parseInt(quietHours.end.replace(':', ''));
-  
-  // Handle overnight quiet hours (e.g., 22:00 to 08:00)
-  if (startTime > endTime) {
-    return currentTime >= startTime || currentTime <= endTime;
-  } else {
-    return currentTime >= startTime && currentTime <= endTime;
-  }
 }
 
 /**
@@ -498,28 +477,6 @@ async function saveAutoLineup(
  */
 async function sendAutoLineupNotification(userId: string, leagueId: string, positionsCount: number): Promise<void> {
   try {
-    // Get user data and FCM token
-    const userDoc = await db.collection('users').doc(userId).get();
-    const userData = userDoc.data();
-    
-    if (!userData?.fcmToken) {
-      logger.info(`No FCM token found for user ${userId}, skipping notification`);
-      return;
-    }
-    
-    // Check if user has auto-lineup notifications enabled
-    const prefs = userData.notificationPreferences;
-    if (!prefs?.enabled || !prefs?.autoLineupAlerts) {
-      logger.info(`Auto-lineup notifications disabled for user ${userId}`);
-      return;
-    }
-    
-    // Check quiet hours
-    if (isQuietHours(prefs.quietHours)) {
-      logger.info(`Skipping auto-lineup notification for user ${userId} due to quiet hours`);
-      return;
-    }
-    
     // Get league name for context
     const leagueDoc = await db.collection('leagues').doc(leagueId).get();
     const leagueName = leagueDoc.data()?.name || 'your league';
@@ -528,23 +485,20 @@ async function sendAutoLineupNotification(userId: string, leagueId: string, posi
     const title = '🤖 Auto-Lineup Applied!';
     const body = `I filled ${positionsCount} missing position${positionsCount === 1 ? '' : 's'} in ${leagueName}. You're all set for this week! 🏈`;
     
-    const message = {
-      token: userData.fcmToken,
-      notification: { title, body },
+    await notifyUser(userId, {
+      type: 'auto_lineup',
+      title,
+      body,
+      prefKey: 'autoLineupAlerts',
+      source: 'auto_assistant',
       data: {
         type: 'auto_lineup',
         leagueId,
-        positionsCount: positionsCount.toString(),
-        userId
+        positionsCount,
+        userId,
+        url: `/lineup?league=${leagueId}`,
       },
-      webpush: {
-        fcmOptions: {
-          link: `/lineup?league=${leagueId}`
-        }
-      }
-    };
-    
-    await admin.messaging().send(message);
+    });
     logger.info(`Auto-lineup notification sent to user ${userId}: ${positionsCount} positions filled`);
     
   } catch (error) {
@@ -715,28 +669,6 @@ async function applyAutoTipsForGames(
  */
 async function sendAutoTipsNotification(userId: string, leagueId: string, tipsCount: number): Promise<void> {
   try {
-    // Get user data and FCM token
-    const userDoc = await db.collection('users').doc(userId).get();
-    const userData = userDoc.data();
-    
-    if (!userData?.fcmToken) {
-      logger.info(`No FCM token found for user ${userId}, skipping notification`);
-      return;
-    }
-    
-    // Check if user has auto-tips notifications enabled
-    const prefs = userData.notificationPreferences;
-    if (!prefs?.enabled || !prefs?.autoTipsAlerts) {
-      logger.info(`Auto-tips notifications disabled for user ${userId}`);
-      return;
-    }
-    
-    // Check quiet hours
-    if (isQuietHours(prefs.quietHours)) {
-      logger.info(`Skipping auto-tips notification for user ${userId} due to quiet hours`);
-      return;
-    }
-    
     // Get league name for context
     const leagueDoc = await db.collection('leagues').doc(leagueId).get();
     const leagueName = leagueDoc.data()?.name || 'your league';
@@ -745,23 +677,20 @@ async function sendAutoTipsNotification(userId: string, leagueId: string, tipsCo
     const title = '🎯 Auto-Tips Applied!';
     const body = `I picked the favorites for ${tipsCount} game${tipsCount === 1 ? '' : 's'} in ${leagueName}. Good luck! 🍀`;
     
-    const message = {
-      token: userData.fcmToken,
-      notification: { title, body },
+    await notifyUser(userId, {
+      type: 'auto_tips',
+      title,
+      body,
+      prefKey: 'autoTipsAlerts',
+      source: 'auto_assistant',
       data: {
         type: 'auto_tips',
         leagueId,
-        tipsCount: tipsCount.toString(),
-        userId
+        tipsCount,
+        userId,
+        url: `/tips?league=${leagueId}`,
       },
-      webpush: {
-        fcmOptions: {
-          link: `/tips?league=${leagueId}`
-        }
-      }
-    };
-    
-    await admin.messaging().send(message);
+    });
     logger.info(`Auto-tips notification sent to user ${userId}: ${tipsCount} tips applied`);
     
   } catch (error) {

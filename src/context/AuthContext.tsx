@@ -2,9 +2,28 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, getIdTokenResult } from 'firebase/auth';
 import { auth, db } from '../firebase/firebase';
-import { initMessaging } from '../firebase/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { setUserContext, clearUserContext, addBreadcrumb } from '../config/sentry';
+import { refreshPushRegistrationIfPermitted } from '../services/pushRegistration';
+
+const defaultNotificationPreferences = {
+  enabled: true,
+  lineupDeadlineAlerts: true,
+  lineupDeadlineMinutes: 180,
+  tipsReminderAlerts: true,
+  tipsReminderMinutes: 180,
+  scoringAlerts: true,
+  captainSuccessAlerts: true,
+  injuryAlerts: false,
+  achievementAlerts: false,
+  autoLineupAlerts: false,
+  autoTipsAlerts: false,
+  quietHours: {
+    enabled: false,
+    start: '22:00',
+    end: '08:00',
+  },
+};
 
 interface AuthContextType {
   user: User | null;
@@ -60,6 +79,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       firstName,
       lastName,
       email,
+      notificationPreferences: defaultNotificationPreferences,
       createdAt: serverTimestamp()
     });
 
@@ -103,10 +123,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         });
         addBreadcrumb(`User authenticated: ${firebaseUser.email}`, 'auth', 'info');
         
-        // Initialize FCM token if notification permission is already granted
+        // Refresh push endpoint if notification permission is already granted.
         if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-          initMessaging(firebaseUser.uid).catch(err => {
-            console.warn('Failed to initialize FCM token:', err);
+          refreshPushRegistrationIfPermitted(firebaseUser.uid).catch(err => {
+            console.warn('Failed to refresh push registration:', err);
           });
         }
       } else {

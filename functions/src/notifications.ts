@@ -11,6 +11,194 @@ import { logger } from 'firebase-functions/v2';
 // Initialize messaging if not already done
 const messaging = admin.messaging();
 
+type NotificationChannel = 'fcm' | 'webpush' | 'inapp';
+type NotificationPrefKey =
+  | 'lineupDeadlineAlerts'
+  | 'tipsReminderAlerts'
+  | 'scoringAlerts'
+  | 'captainSuccessAlerts'
+  | 'injuryAlerts'
+  | 'achievementAlerts'
+  | 'autoLineupAlerts'
+  | 'autoTipsAlerts';
+
+interface NotificationPayload {
+  type: string;
+  title: string;
+  body: string;
+  data?: Record<string, string | number | boolean | undefined>;
+  prefKey?: NotificationPrefKey;
+  dedupeKey?: string;
+  source?: string;
+}
+
+const defaultNotificationPreferences: NotificationPreferences & {
+  tipsReminderAlerts: boolean;
+  tipsReminderMinutes: number;
+} = {
+  enabled: true,
+  lineupDeadlineAlerts: true,
+  lineupDeadlineMinutes: 180,
+  tipsReminderAlerts: true,
+  tipsReminderMinutes: 180,
+  scoringAlerts: true,
+  captainSuccessAlerts: true,
+  injuryAlerts: false,
+  achievementAlerts: false,
+  autoLineupAlerts: false,
+  autoTipsAlerts: false,
+  quietHours: {
+    enabled: false,
+    start: '22:00',
+    end: '08:00',
+  },
+};
+
+function withDefaultPreferences(prefs?: Partial<NotificationPreferences> & {
+  tipsReminderAlerts?: boolean;
+  tipsReminderMinutes?: number;
+}) {
+  return {
+    ...defaultNotificationPreferences,
+    ...(prefs ?? {}),
+    quietHours: {
+      ...defaultNotificationPreferences.quietHours,
+      ...(prefs?.quietHours ?? {}),
+    },
+  };
+}
+
+function isWithinQuietHours(prefs: ReturnType<typeof withDefaultPreferences>): boolean {
+  if (!prefs.quietHours.enabled) return false;
+
+  const [startHour, startMinute] = prefs.quietHours.start.split(':').map(Number);
+  const [endHour, endMinute] = prefs.quietHours.end.split(':').map(Number);
+  if ([startHour, startMinute, endHour, endMinute].some(Number.isNaN)) return false;
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+
+  if (startMinutes <= endMinutes) {
+    return currentMinutes >= startMinutes && currentMinutes < endMinutes;
+  }
+
+  return currentMinutes >= startMinutes || currentMinutes < endMinutes;
+}
+
+function stringifyNotificationData(data?: Record<string, string | number | boolean | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(data ?? {})
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, String(value)])
+  );
+}
+
+async function reserveNotificationDedupe(dedupeKey?: string): Promise<boolean> {
+  if (!dedupeKey) return true;
+
+  try {
+    await admin.firestore().collection('notificationTracking').doc(dedupeKey).create({
+      dedupeKey,
+      sentAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return true;
+  } catch (error: unknown) {
+    const code = (error as { code?: number | string })?.code;
+    if (code === 6 || code === 'already-exists') {
+      logger.info('Notification dedupe hit; skipping duplicate', { dedupeKey });
+      return false;
+    }
+
+    logger.warn('Notification dedupe check failed; continuing', { dedupeKey, error });
+    return true;
+  }
+}
+
+async function sendFcmToUser(userId: string, token: string, payload: NotificationPayload): Promise<boolean> {
+  try {
+    await messaging.send({
+      token,
+      notification: {
+        title: payload.title,
+        body: payload.body,
+      },
+      data: stringifyNotificationData(payload.data),
+      webpush: {
+        fcmOptions: {
+          link: typeof payload.data?.url === 'string' ? payload.data.url : '/notifications',
+        },
+      },
+    });
+    return true;
+  } catch (error: unknown) {
+    const code = (error as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
+    if (code === 'messaging/registration-token-not-registered') {
+      await admin.firestore().collection('users').doc(userId).set({
+        fcmToken: admin.firestore.FieldValue.delete(),
+      }, { merge: true });
+      logger.warn('Removed invalid FCM token', { userId });
+    } else {
+      logger.warn('FCM send failed', { userId, error });
+    }
+    return false;
+  }
+}
+
+export async function notifyUser(userId: string, payload: NotificationPayload): Promise<{ success: boolean; channel: NotificationChannel; skipped?: boolean; message: string }> {
+  const userSnap = await admin.firestore().collection('users').doc(userId).get();
+  const userData = userSnap.data() as FirestoreUser | undefined;
+  const prefs = withDefaultPreferences(userData?.notificationPreferences);
+
+  if (!prefs.enabled) {
+    return { success: false, channel: 'inapp', skipped: true, message: 'Notifications disabled' };
+  }
+
+  if (payload.prefKey && prefs[payload.prefKey] === false) {
+    return { success: false, channel: 'inapp', skipped: true, message: `${payload.prefKey} disabled` };
+  }
+
+  if (isWithinQuietHours(prefs)) {
+    return { success: false, channel: 'inapp', skipped: true, message: 'Quiet hours active' };
+  }
+
+  const shouldSend = await reserveNotificationDedupe(payload.dedupeKey);
+  if (!shouldSend) {
+    return { success: false, channel: 'inapp', skipped: true, message: 'Duplicate notification' };
+  }
+
+  let channel: NotificationChannel = 'inapp';
+  let pushSent = false;
+  if (userData?.webPushSubscription?.endpoint) {
+    pushSent = await sendWebPushToUser(userId, {
+      title: payload.title,
+      body: payload.body,
+      data: payload.data ?? {},
+    });
+    if (pushSent) channel = 'webpush';
+  } else if (userData?.fcmToken) {
+    pushSent = await sendFcmToUser(userId, userData.fcmToken, payload);
+    if (pushSent) channel = 'fcm';
+  }
+
+  await persistUserNotification(
+    userId,
+    payload.type,
+    payload.title,
+    payload.body,
+    payload.data,
+    channel,
+    payload.source ?? 'notify_user'
+  );
+
+  return {
+    success: true,
+    channel,
+    message: pushSent ? `Notification sent via ${channel}` : 'Notification stored in-app only',
+  };
+}
+
 // Generate friendly, casual notification messages
 function generateFriendlyNotificationMessage(
   homeTeam: string,
@@ -138,6 +326,32 @@ interface LineupDeadlineAlert {
   missingPositions: string[];
 }
 
+interface TippableReminderGame {
+  gameId: string;
+  homeTeam?: string;
+  awayTeam?: string;
+  gameTime: number | string;
+}
+
+interface WeeklyTipsReminderPoll {
+  leagueId: string;
+  season: number;
+  week: number;
+  games?: TippableReminderGame[];
+}
+
+interface TipsReminderAlert {
+  userId: string;
+  leagueId: string;
+  leagueName: string;
+  week: number;
+  season: number;
+  firstGameId: string;
+  firstGameTime: number;
+  homeTeam: string;
+  awayTeam: string;
+}
+
 // Helper function to perform the lineup deadline check logic
 async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsSent: number; message: string }> {
   logger.info('Starting lineup deadline check...');
@@ -177,14 +391,12 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
       
       logger.info(`Found ${upcomingGames.length} games starting soon`);
       
-      // Get all users with notification preferences
+      // Get all users; notifyUser applies defaults, preferences, quiet hours and channel checks.
       const usersSnapshot = await admin.firestore()
         .collection('users')
-        .where('notificationPreferences.enabled', '==', true)
-        .where('notificationPreferences.lineupDeadlineAlerts', '==', true)
         .get();
       
-      logger.info(`Found ${usersSnapshot.docs.length} users with notifications enabled`);
+      logger.info(`Checking ${usersSnapshot.docs.length} users for lineup deadline reminders`);
       
       const alerts: LineupDeadlineAlert[] = [];
       
@@ -192,15 +404,8 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
       for (const userDoc of usersSnapshot.docs) {
         const userData = userDoc.data() as FirestoreUser;
         const userId = userDoc.id;
-        
-        logger.debug(`Checking user ${userId}, has FCM token: ${!!userData.fcmToken}`);
-        
-        if (!userData.fcmToken) {
-          logger.debug(`Skipping user ${userId} - no FCM token`);
-          continue;
-        }
-        
-        const notificationMinutes = userData.notificationPreferences?.lineupDeadlineMinutes || 30;
+        const prefs = withDefaultPreferences(userData.notificationPreferences);
+        const notificationMinutes = prefs.lineupDeadlineMinutes || 180;
         logger.debug(`User ${userId} notification window: ${notificationMinutes} minutes`);
         
         // Get user's leagues
@@ -269,14 +474,6 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
       
       const notificationPromises = alerts.map(async (alert) => {
         try {
-          const userDoc = await admin.firestore()
-            .collection('users')
-            .doc(alert.userId)
-            .get();
-          
-          const userData = userDoc.data() as FirestoreUser;
-          if (!userData.fcmToken) return;
-          
           const minutesUntilGame = Math.floor((alert.gameTime - now) / 60);
           const positionCount = alert.missingPositions.length;
           
@@ -289,69 +486,134 @@ async function performLineupDeadlineCheck(): Promise<{ success: boolean; alertsS
             alert.leagueName
           );
           
-          const message = {
-            token: userData.fcmToken,
-            notification: {
-              title,
-              body
-            },
+          return await notifyUser(alert.userId, {
+            type: 'lineup_deadline',
+            title,
+            body,
+            prefKey: 'lineupDeadlineAlerts',
+            source: 'lineup_deadline_scheduler',
+            dedupeKey: `lineup_deadline_${alert.userId}_${alert.leagueId}_${alert.gameId}_${currentSeason}_${currentWeek}`,
             data: {
               type: 'lineup_deadline',
               leagueId: alert.leagueId,
               gameId: alert.gameId,
-              week: currentWeek.toString(),
-              season: currentSeason.toString()
+              week: currentWeek,
+              season: currentSeason,
+              url: `/lineup?league=${alert.leagueId}&week=${currentWeek}`,
             },
-            webpush: {
-              fcmOptions: {
-                link: `/lineup?league=${alert.leagueId}&week=${currentWeek}`
-              }
-            }
-          };
-          
-          try {
-            await messaging.send(message);
-            logger.info(`Sent lineup deadline alert (FCM) to user ${alert.userId} for league ${alert.leagueName}`);
-          } catch (fcmError: unknown) {
-            const msg = (fcmError as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
-            if (msg === 'messaging/registration-token-not-registered') {
-              // Clean up invalid token
-              await admin.firestore().collection('users').doc(alert.userId).set({ fcmToken: admin.firestore.FieldValue.delete() }, { merge: true });
-              logger.warn(`Removed invalid FCM token for user ${alert.userId}`);
-            } else {
-              logger.warn('FCM send failed for user', { userId: alert.userId, error: fcmError });
-            }
-          }
-          
-          // Also attempt Web Push for Safari/iOS PWA users
-          await sendWebPushToUser(alert.userId, {
-            title,
-            body,
-            data: { type: 'lineup_deadline', leagueId: alert.leagueId, week: currentWeek, season: currentSeason },
           });
-          // Persist notification for in-app center
-          await persistUserNotification(
-            alert.userId,
-            'lineup_deadline',
-            title,
-            body,
-            { leagueId: alert.leagueId, gameId: alert.gameId, week: currentWeek, season: currentSeason }
-          );
           
         } catch (error) {
           logger.error(`Failed to send notification to user ${alert.userId}:`, { error });
+          return { success: false, channel: 'inapp' as const, message: 'Failed' };
         }
       });
       
-      await Promise.all(notificationPromises);
+      const results = await Promise.all(notificationPromises);
+      const sentCount = results.filter((result) => result?.success && !result.skipped).length;
       logger.info('Lineup deadline check completed');
       
-      return { success: true, alertsSent: alerts.length, message: `Sent ${alerts.length} lineup deadline alerts` };
+      return { success: true, alertsSent: sentCount, message: `Sent ${sentCount} lineup deadline alerts` };
       
     } catch (error) {
       logger.error('Error in lineup deadline check:', { error });
       return { success: false, alertsSent: 0, message: `Error: ${error}` };
     }
+}
+
+async function performTipsReminderCheck(): Promise<{ success: boolean; alertsSent: number; message: string }> {
+  logger.info('Starting tips reminder check...');
+
+  try {
+    const currentWeek = calculateCurrentNFLWeek();
+    const currentSeason = parseInt(config.CURRENT_NFL_SEASON, 10);
+    const now = Date.now();
+
+    const tipsPolls = await admin.firestore()
+      .collection('weeklyTips')
+      .where('season', '==', currentSeason)
+      .where('week', '==', currentWeek)
+      .get();
+
+    if (tipsPolls.empty) {
+      return { success: true, alertsSent: 0, message: 'No tips polls found for current week' };
+    }
+
+    const alerts: TipsReminderAlert[] = [];
+
+    for (const tipsDoc of tipsPolls.docs) {
+      const poll = tipsDoc.data() as WeeklyTipsReminderPoll;
+      const games = poll.games ?? [];
+      const upcomingGames = games
+        .map((game) => ({
+          ...game,
+          gameTime: typeof game.gameTime === 'string' ? parseInt(game.gameTime, 10) : game.gameTime,
+        }))
+        .filter((game) => Number.isFinite(game.gameTime) && game.gameTime > now && game.gameTime - now <= 24 * 60 * 60 * 1000)
+        .sort((a, b) => a.gameTime - b.gameTime);
+
+      if (upcomingGames.length === 0) continue;
+
+      const firstGame = upcomingGames[0];
+      const leagueSnap = await admin.firestore().collection('leagues').doc(poll.leagueId).get();
+      const leagueData = leagueSnap.data() as { name?: string; memberUids?: string[] } | undefined;
+      const memberUids = leagueData?.memberUids ?? [];
+
+      for (const userId of memberUids) {
+        const userTipsDoc = await tipsDoc.ref.collection('userTips').doc(userId).get();
+        if (userTipsDoc.exists) continue;
+
+        const userSnap = await admin.firestore().collection('users').doc(userId).get();
+        const userData = userSnap.data() as FirestoreUser | undefined;
+        const prefs = withDefaultPreferences(userData?.notificationPreferences);
+        const reminderMinutes = prefs.tipsReminderMinutes || 180;
+        const minutesUntilFirstGame = Math.floor((firstGame.gameTime - now) / (60 * 1000));
+
+        if (minutesUntilFirstGame <= reminderMinutes) {
+          alerts.push({
+            userId,
+            leagueId: poll.leagueId,
+            leagueName: leagueData?.name ?? 'your league',
+            week: currentWeek,
+            season: currentSeason,
+            firstGameId: firstGame.gameId,
+            firstGameTime: firstGame.gameTime,
+            homeTeam: firstGame.homeTeam ?? 'Home',
+            awayTeam: firstGame.awayTeam ?? 'Away',
+          });
+        }
+      }
+    }
+
+    const results = await Promise.all(alerts.map((alert) => {
+      const minutesUntilFirstGame = Math.floor((alert.firstGameTime - now) / (60 * 1000));
+      const title = 'Tip reminder';
+      const body = `${alert.awayTeam} @ ${alert.homeTeam} starts in ${minutesUntilFirstGame} minutes. Submit your tips for ${alert.leagueName}.`;
+
+      return notifyUser(alert.userId, {
+        type: 'tips_reminder',
+        title,
+        body,
+        prefKey: 'tipsReminderAlerts',
+        source: 'tips_reminder_scheduler',
+        dedupeKey: `tips_reminder_${alert.userId}_${alert.leagueId}_${alert.season}_${alert.week}`,
+        data: {
+          type: 'tips_reminder',
+          leagueId: alert.leagueId,
+          gameId: alert.firstGameId,
+          week: alert.week,
+          season: alert.season,
+          url: '/tips',
+        },
+      });
+    }));
+
+    const sentCount = results.filter((result) => result.success && !result.skipped).length;
+    return { success: true, alertsSent: sentCount, message: `Sent ${sentCount} tips reminders` };
+  } catch (error) {
+    logger.error('Error in tips reminder check:', { error });
+    return { success: false, alertsSent: 0, message: `Error: ${error}` };
+  }
 }
 
 // Function to check lineups and send deadline notifications
@@ -364,6 +626,18 @@ export const checkLineupDeadlines = onSchedule(
   },
   async () => {
     await performLineupDeadlineCheck();
+  }
+);
+
+export const checkTipsReminders = onSchedule(
+  {
+    schedule: 'every 15 minutes',
+    region: REGION,
+    timeZone: 'Europe/Berlin',
+    secrets: [secrets.WEB_PUSH_VAPID_PUBLIC_KEY, secrets.WEB_PUSH_VAPID_PRIVATE_KEY],
+  },
+  async () => {
+    await performTipsReminderCheck();
   }
 );
 
@@ -392,6 +666,28 @@ export const triggerLineupDeadlineCheck = onCall(
       logger.error('Error triggering lineup deadline check:', { error });
       throw new HttpsError('internal', 'Failed to trigger lineup deadline check');
     }
+  }
+);
+
+export const sendTestNotification = onCall(
+  { region: REGION, cors: true, secrets: [secrets.WEB_PUSH_VAPID_PUBLIC_KEY, secrets.WEB_PUSH_VAPID_PRIVATE_KEY] },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Must be authenticated');
+    }
+
+    const result = await notifyUser(request.auth.uid, {
+      type: 'system',
+      title: 'Easy Fantasy test',
+      body: 'Push notifications are ready on this device.',
+      source: 'user_test_notification',
+      data: {
+        type: 'system',
+        url: '/notifications',
+      },
+    });
+
+    return { success: result.success, message: result.message, channel: result.channel };
   }
 );
 
@@ -433,23 +729,33 @@ export const saveWebPushSubscription = onCall(
   }
 );
 
-export async function sendWebPushToUser(userId: string, payload: Record<string, unknown>) {
-  if (!ensureWebPushConfigured()) return;
+export async function sendWebPushToUser(userId: string, payload: Record<string, unknown>): Promise<boolean> {
+  if (!ensureWebPushConfigured()) return false;
   const userSnap = await admin.firestore().collection('users').doc(userId).get();
   const saved = userSnap.data()?.webPushSubscription as { endpoint?: string; keys?: { p256dh?: string; auth?: string } } | undefined;
   if (!saved || typeof saved.endpoint !== 'string' || !saved.endpoint) {
     logger.warn('WebPush: missing endpoint for user', { userId });
-    return;
+    return false;
   }
   if (!saved.keys?.p256dh || !saved.keys?.auth) {
     logger.warn('WebPush: missing keys for user', { userId });
-    return;
+    return false;
   }
   const sub = { endpoint: saved.endpoint, keys: { p256dh: saved.keys.p256dh, auth: saved.keys.auth } } as unknown as PushSubscription;
   try {
     await webpush.sendNotification(sub, JSON.stringify(payload));
+    return true;
   } catch (e) {
-    logger.warn('WebPush send failed', e as Error);
+    const statusCode = (e as { statusCode?: number })?.statusCode;
+    if (statusCode === 404 || statusCode === 410) {
+      await admin.firestore().collection('users').doc(userId).set({
+        webPushSubscription: admin.firestore.FieldValue.delete(),
+      }, { merge: true });
+      logger.warn('Removed expired Web Push subscription', { userId, statusCode });
+    } else {
+      logger.warn('WebPush send failed', e as Error);
+    }
+    return false;
   }
 }
 
@@ -470,10 +776,6 @@ export const sendPerformanceAlert = onCall(
         .get();
       
       const userData = userDoc.data() as FirestoreUser;
-      
-      if (!userData?.fcmToken) {
-        return { success: false, message: 'No FCM token found' };
-      }
       
       // Check if user has performance notifications enabled
       const prefs = userData.notificationPreferences;
@@ -497,34 +799,16 @@ export const sendPerformanceAlert = onCall(
         return { success: false, message: 'Notification criteria not met' };
       }
       
-      // Try FCM first if token exists
-      const token = userData.fcmToken;
-      if (token) {
-        const message = {
-          token,
-          notification: { title, body },
-          data: { type, playerName, points: points.toString() }
-        };
-        try {
-          await messaging.send(message);
-          logger.info(`Sent performance alert (FCM) to user ${request.auth.uid}: ${title}`);
-        } catch (err: unknown) {
-          const msg = (err as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
-          if (msg === 'messaging/registration-token-not-registered') {
-            // Clean up invalid token to prevent future failures
-            await admin.firestore().collection('users').doc(request.auth.uid).set({ fcmToken: admin.firestore.FieldValue.delete() }, { merge: true });
-            logger.warn(`Removed invalid FCM token for user ${request.auth.uid}`);
-          } else {
-            logger.warn('FCM send failed', err);
-          }
-        }
-      }
+      const result = await notifyUser(request.auth.uid, {
+        type: type === 'captain_success' ? 'captain_success' : 'performance',
+        title,
+        body,
+        prefKey: type === 'captain_success' ? 'captainSuccessAlerts' : 'scoringAlerts',
+        source: 'manual_performance_alert',
+        data: { type, playerName, points: String(points), url: '/notifications' },
+      });
 
-      // Also attempt Web Push (iOS PWA/Safari)
-      await sendWebPushToUser(request.auth.uid, { title, body, data: { type, playerName, points: String(points) } });
-      await persistUserNotification(request.auth.uid, 'performance', title, body, { type, playerName, points });
-
-      return { success: true, message: 'Performance alert dispatched' };
+      return { success: result.success, message: result.message, channel: result.channel };
       
     } catch (error) {
       logger.error('Error sending performance alert:', { error });
@@ -551,10 +835,6 @@ export const sendInjuryAlert = onCall(
       
       const userData = userDoc.data() as FirestoreUser;
       
-      if (!userData?.fcmToken) {
-        return { success: false, message: 'No FCM token found' };
-      }
-      
       // Check if user has injury notifications enabled
       const prefs = userData.notificationPreferences;
       if (!prefs?.enabled || !prefs?.injuryAlerts) {
@@ -577,37 +857,23 @@ export const sendInjuryAlert = onCall(
         return { success: false, message: 'Non-critical injury status' };
       }
       
-      const token = userData.fcmToken;
-      if (token) {
-        const message = {
-          token,
-          notification: { title, body },
-          data: {
-            type: 'injury_alert',
-            playerName,
-            injuryStatus,
-            injuryDetails: injuryDetails || '',
-            suggestedReplacement: suggestedReplacement || ''
-          }
-        };
-        try {
-          await messaging.send(message);
-          logger.info(`Sent injury alert (FCM) to user ${request.auth.uid}: ${playerName} - ${injuryStatus}`);
-        } catch (err: unknown) {
-          const msg = (err as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
-          if (msg === 'messaging/registration-token-not-registered') {
-            await admin.firestore().collection('users').doc(request.auth.uid).set({ fcmToken: admin.firestore.FieldValue.delete() }, { merge: true });
-            logger.warn(`Removed invalid FCM token for user ${request.auth.uid}`);
-          } else {
-            logger.warn('FCM send failed', err);
-          }
-        }
-      }
-
-      await sendWebPushToUser(request.auth.uid, { title, body, data: { type: 'injury_alert', playerName, injuryStatus } });
-      await persistUserNotification(request.auth.uid, 'injury', title, body, { playerName, injuryStatus, injuryDetails, suggestedReplacement });
+      const result = await notifyUser(request.auth.uid, {
+        type: 'injury',
+        title,
+        body,
+        prefKey: 'injuryAlerts',
+        source: 'manual_injury_alert',
+        data: {
+          type: 'injury_alert',
+          playerName,
+          injuryStatus,
+          injuryDetails: injuryDetails || '',
+          suggestedReplacement: suggestedReplacement || '',
+          url: '/notifications',
+        },
+      });
       
-      return { success: true, message: 'Injury alert dispatched' };
+      return { success: result.success, message: result.message, channel: result.channel };
       
     } catch (error) {
       logger.error('Error sending injury alert:', { error });
@@ -634,10 +900,6 @@ export const sendAchievementAlert = onCall(
       
       const userData = userDoc.data() as FirestoreUser;
       
-      if (!userData?.fcmToken) {
-        return { success: false, message: 'No FCM token found' };
-      }
-      
       // Check if user has achievement notifications enabled
       const prefs = userData.notificationPreferences;
       if (!prefs?.enabled || !prefs?.achievementAlerts) {
@@ -663,36 +925,22 @@ export const sendAchievementAlert = onCall(
         return { success: false, message: 'Unknown achievement type' };
       }
       
-      const message = {
-        token: userData.fcmToken,
-        notification: { title, body },
+      const result = await notifyUser(request.auth.uid, {
+        type: 'achievement',
+        title,
+        body,
+        prefKey: 'achievementAlerts',
+        source: 'manual_achievement_alert',
         data: {
           type: 'achievement',
           achievementType,
           weekCount: weekCount?.toString() || '',
-          leagueName
-        }
-      };
+          leagueName,
+          url: '/profile',
+        },
+      });
       
-      try {
-        await messaging.send(message);
-        logger.info(`Sent achievement alert to user ${request.auth.uid}: ${achievementType}`);
-      } catch (err: unknown) {
-        const msg = (err as { errorInfo?: { code?: string } })?.errorInfo?.code || '';
-        if (msg === 'messaging/registration-token-not-registered') {
-          // Clean up invalid token to prevent future failures
-          await admin.firestore().collection('users').doc(request.auth.uid).set({ fcmToken: admin.firestore.FieldValue.delete() }, { merge: true });
-          logger.warn(`Removed invalid FCM token for user ${request.auth.uid}`);
-          return { success: false, message: 'FCM token was invalid and has been removed. Please refresh the page to generate a new token.' };
-        } else {
-          logger.warn('FCM send failed', err);
-          throw err; // Re-throw non-token errors
-        }
-      }
-      
-      await persistUserNotification(request.auth.uid, 'achievement', title, body, { achievementType, weekCount, leagueName });
-      
-      return { success: true, message: 'Achievement alert sent' };
+      return { success: result.success, message: result.message, channel: result.channel };
       
     } catch (error) {
       logger.error('Error sending achievement alert:', { error });

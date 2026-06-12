@@ -4,7 +4,7 @@ import ComponentCard from '../components/common/ComponentCard';
 import Button from '../components/ui/button/Button';
 import { useAuth } from '../context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { collection, doc, getDocs, limit, orderBy, query, startAfter, Timestamp, updateDoc, where, deleteDoc, type QueryDocumentSnapshot } from 'firebase/firestore';
+import { collection, doc, getDocs, limit, orderBy, query, startAfter, Timestamp, updateDoc, where, deleteDoc, writeBatch, type QueryDocumentSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import type { UserNotificationDoc, NotificationType } from '../types/notifications';
 import { useNavigate } from 'react-router';
@@ -142,6 +142,31 @@ export default function NotificationsPage() {
     }
   });
 
+  const deleteAllNotifications = useMutation({
+    mutationFn: async () => {
+      if (!user?.uid) return;
+
+      const col = collection(db, 'users', user.uid, 'notifications');
+      const snap = await getDocs(query(col));
+      const chunks: QueryDocumentSnapshot[][] = [];
+
+      for (let i = 0; i < snap.docs.length; i += 450) {
+        chunks.push(snap.docs.slice(i, i + 450));
+      }
+
+      for (const chunk of chunks) {
+        const batch = writeBatch(db);
+        chunk.forEach((notificationDoc) => batch.delete(notificationDoc.ref));
+        await batch.commit();
+      }
+    },
+    onSuccess: () => {
+      setItems([]);
+      setLastDoc(null);
+      qc.invalidateQueries({ queryKey: ['notifications', user?.uid] });
+    }
+  });
+
   const handleNotificationClick = (notification: UserNotificationDoc) => {
     // Mark as read if unread
     if (!notification.readAt) {
@@ -160,9 +185,9 @@ export default function NotificationsPage() {
       <PageMeta title="Notifications | Easy Fantasy" description="Your in-app notifications." />
       <div className="container mx-auto px-2 py-6 pb-content-safe">
         <div className="mb-6">
-          <div className="hidden md:flex items-center justify-between mb-2">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-2">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Notifications</h1>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={() => setFilter(filter === 'all' ? 'unread' : 'all')}>
                 {filter === 'all' ? 'Show Unread' : 'Show All'}
               </Button>
@@ -179,6 +204,17 @@ export default function NotificationsPage() {
                 <option value="system">{getNotificationTypeLabel('system')}</option>
               </select>
               <Button onClick={() => markAllRead.mutate()} disabled={unreadCount === 0}>Mark all read</Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (confirm('Delete all notifications?')) {
+                    deleteAllNotifications.mutate();
+                  }
+                }}
+                disabled={items.length === 0 || deleteAllNotifications.isPending}
+              >
+                {deleteAllNotifications.isPending ? 'Deleting...' : 'Delete all'}
+              </Button>
             </div>
           </div>
           <p className="text-gray-600 dark:text-gray-400 text-sm">{unreadCount} unread</p>
@@ -225,9 +261,9 @@ export default function NotificationsPage() {
                                   Mark read
                                 </Button>
                               )}
-                              <Button 
-                                size="sm" 
-                                variant="destructive" 
+                              <button
+                                type="button"
+                                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-red-500/20 dark:text-gray-500 dark:hover:bg-red-950/30 dark:hover:text-red-400"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (confirm('Delete this notification?')) {
@@ -235,9 +271,12 @@ export default function NotificationsPage() {
                                   }
                                 }}
                                 title="Delete notification"
+                                aria-label="Delete notification"
                               >
-                                🗑️
-                              </Button>
+                                <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                  <path fillRule="evenodd" d="M8.75 1.5A2.25 2.25 0 006.5 3.75V4H3.75a.75.75 0 000 1.5h.44l.77 10.026A3.25 3.25 0 008.2 18.5h3.6a3.25 3.25 0 003.24-2.974L15.81 5.5h.44a.75.75 0 000-1.5H13.5v-.25a2.25 2.25 0 00-2.25-2.25h-2.5zM8 3.75A.75.75 0 018.75 3h2.5a.75.75 0 01.75.75V4H8v-.25zM6.31 5.5l.646 9.911A1.75 1.75 0 008.2 17h3.6a1.75 1.75 0 001.744-1.589L14.19 5.5H6.31z" clipRule="evenodd" />
+                                </svg>
+                              </button>
                             </div>
                           </div>
                         </div>

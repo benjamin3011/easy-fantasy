@@ -274,7 +274,14 @@ export const saveWeeklyLineup = onCall(
                 const oldEntityIds = new Set<string>();
                 for (const pos in oldPicks) {
                     const pick = oldPicks[pos as LineupPosition];
-                    if (pick) oldEntityIds.add(`${pick.type}_${pick.id}`);
+                    if (pick) {
+                        // For teams, include position in entityId to match new format
+                        // For players, use global entityId
+                        const entityId = pick.type === 'team' 
+                            ? `${pick.type}_${pick.id}_${pos}`
+                            : `${pick.type}_${pick.id}`;
+                        oldEntityIds.add(entityId);
+                    }
                 }
 
                 // 2. Prepare new lineup data and identify new entity IDs
@@ -357,7 +364,11 @@ export const saveWeeklyLineup = onCall(
                                 name: entityName?.name,
                                 teamAbbreviation: entityName?.teamAbbreviation,
                             };
-                            const entityId = `${pick.type}_${pick.id}`;
+                            // For teams, include position in entityId to track usage per position
+                            // For players, use global entityId since player usage is across all uses
+                            const entityId = pick.type === 'team' 
+                                ? `${pick.type}_${pick.id}_${position}`
+                                : `${pick.type}_${pick.id}`;
                             newEntityIds.add(entityId);
                             entityIdsToFetchUsage.add(entityId); 
                         }
@@ -366,19 +377,57 @@ export const saveWeeklyLineup = onCall(
                 
                 oldEntityIds.forEach(id => entityIdsToFetchUsage.add(id));
                 
+                // Also fetch old format team usage for backwards compatibility
+                const oldFormatTeamIds = new Set<string>();
+                newEntityIds.forEach(entityId => {
+                    if (entityId.startsWith('team_')) {
+                        // Extract base team ID (e.g., team_LAR from team_LAR_PassingOffense)
+                        const parts = entityId.split('_');
+                        if (parts.length === 3) {
+                            const oldFormatId = `${parts[0]}_${parts[1]}`; // team_LAR
+                            oldFormatTeamIds.add(oldFormatId);
+                        }
+                    }
+                });
+                
                 const usageDocsToGetRefs: admin.firestore.DocumentReference[] = [];
                 entityIdsToFetchUsage.forEach(entityId => {
                     usageDocsToGetRefs.push(db.doc(`${usageCollectionPath}/${entityId}`));
                 });
+                // Also fetch old format docs for teams
+                oldFormatTeamIds.forEach(oldFormatId => {
+                    usageDocsToGetRefs.push(db.doc(`${usageCollectionPath}/${oldFormatId}`));
+                });
                 
                 const currentUsageDocs = usageDocsToGetRefs.length > 0 ? await transaction.getAll(...usageDocsToGetRefs) : [];
                 const currentUsages: { [entityId: string]: number } = {};
+                const oldFormatUsages: { [entityId: string]: number } = {};
+                
                 currentUsageDocs.forEach(docSnap => {
+                    const docId = docSnap.id.split('/').pop()!;
                     if (docSnap.exists) {
-                        currentUsages[docSnap.id.split('/').pop()!] = (docSnap.data() as FirestoreLeagueUsageCount)?.count ?? 0;
-                     } else {
-                        currentUsages[docSnap.id.split('/').pop()!] = 0;
-                     }
+                        const count = (docSnap.data() as FirestoreLeagueUsageCount)?.count ?? 0;
+                        // Check if this is old format (team_LAR) vs new format (team_LAR_PassingOffense)
+                        if (docId.startsWith('team_') && docId.split('_').length === 2) {
+                            oldFormatUsages[docId] = count;
+                        } else {
+                            currentUsages[docId] = count;
+                        }
+                    } else {
+                        currentUsages[docId] = 0;
+                    }
+                });
+                
+                // For new team entities, check both new format and old format, use the higher value
+                newEntityIds.forEach(entityId => {
+                    if (entityId.startsWith('team_') && entityId.split('_').length === 3) {
+                        const parts = entityId.split('_');
+                        const oldFormatId = `${parts[0]}_${parts[1]}`;
+                        const oldCount = oldFormatUsages[oldFormatId] ?? 0;
+                        const newCount = currentUsages[entityId] ?? 0;
+                        // Use old format count if new format doesn't exist yet (backwards compatibility)
+                        currentUsages[entityId] = newCount > 0 ? newCount : oldCount;
+                    }
                 });
 
                 const entitiesToIncrement = new Set<string>();

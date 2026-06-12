@@ -32,15 +32,15 @@ export const hosts = {
  * Other Configurations
  */
 export const config = {
-    CURRENT_NFL_SEASON: "2025", // Update as needed
-    SEASON_START_DATE_REF: new Date('2025-09-03'), // First Wednesday of the season
+    CURRENT_NFL_SEASON: "2026", // Update as needed
+    SEASON_START_DATE_REF: new Date('2026-09-09'), // Week 1 starts on Wednesday in 2026
     MAX_NFL_WEEKS: 18, // Max number of weeks in the NFL season
     RELEVANT_PLAYER_POSITIONS: ['QB', 'RB', 'WR', 'TE'],
     
     // Pre-season configuration
     CURRENT_SEASON_TYPE: "reg", // "pre" for pre-season, "reg" for regular season
     PRE_SEASON_WEEK_OFFSET: 1, // Pre-season week 1 = API week 2 (since week 1 is Hall of Fame)
-    PRE_SEASON_START_DATE_REF: new Date('2025-08-06'), // First Wednesday of pre-season Week 1
+    PRE_SEASON_START_DATE_REF: new Date('2026-08-05'), // First Wednesday of pre-season Week 1
 };
 
 /**

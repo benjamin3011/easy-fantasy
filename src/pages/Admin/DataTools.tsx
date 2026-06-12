@@ -6,12 +6,14 @@ import Input from '../../components/form/input/InputField';
 import Button from '../../components/ui/button/Button';
 import Alert from '../../components/ui/alert/Alert';
 import { manualUpdateTeamsAndPlayersCallable, manualFetchAndProcessGameStatsForWeekCallable, manualFetchWeeklyScheduleCallable, repairSeasonFantasyPointsCallable } from '../../firebase/callables';
+import { APP_CONFIG } from '../../config/appConfig';
 
 export default function DataTools() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [week, setWeek] = useState('');
+  const currentSeason = parseInt(APP_CONFIG.CURRENT_NFL_SEASON, 10);
 
   const withStatus = async (fn: () => Promise<void>) => {
     setMessage(null); setError(null); setLoading(true);
@@ -77,7 +79,7 @@ export default function DataTools() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <Button 
             onClick={() => withStatus(async () => {
-              const res = await repairSeasonFantasyPointsCallable({ season: 2025 });
+              const res = await repairSeasonFantasyPointsCallable({ season: currentSeason });
               setMessage(`✅ Repaired ${res.data.playersRepaired} players and ${res.data.teamsRepaired} teams`);
             })} 
             disabled={loading} 
@@ -89,7 +91,7 @@ export default function DataTools() {
           
           <Button 
             onClick={() => withStatus(async () => {
-              const res = await repairSeasonFantasyPointsCallable({ season: 2025, playersOnly: true });
+              const res = await repairSeasonFantasyPointsCallable({ season: currentSeason, playersOnly: true });
               setMessage(`✅ Repaired ${res.data.playersRepaired} players`);
             })} 
             disabled={loading} 
@@ -101,7 +103,7 @@ export default function DataTools() {
           
           <Button 
             onClick={() => withStatus(async () => {
-              const res = await repairSeasonFantasyPointsCallable({ season: 2025, teamsOnly: true });
+              const res = await repairSeasonFantasyPointsCallable({ season: currentSeason, teamsOnly: true });
               setMessage(`✅ Repaired ${res.data.teamsRepaired} teams`);
             })} 
             disabled={loading} 

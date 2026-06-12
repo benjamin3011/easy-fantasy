@@ -5,6 +5,7 @@ import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { fetchGameScores } from '../../services/lineupFetchingService';
 import { fetchUserProfiles, UserProfile } from '../../utils/userProfiles';
 import { calculateCurrentNFLWeek } from '../../utils/nflWeekHelper';
+import { APP_CONFIG } from '../../config/appConfig';
 
 interface ProphetLeaderboardEntry {
   userId: string;
@@ -29,7 +30,7 @@ interface ProphetLeaderboardProps {
 export const ProphetLeaderboard: React.FC<ProphetLeaderboardProps> = ({ 
   leagueId, 
   week,
-  season = 2025,
+  season = parseInt(APP_CONFIG.CURRENT_NFL_SEASON, 10),
   useMockData = false
 }) => {
   const [leaderboard, setLeaderboard] = useState<ProphetLeaderboardEntry[]>([]);

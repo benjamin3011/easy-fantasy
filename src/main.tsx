@@ -30,11 +30,6 @@ const queryClient = new QueryClient({
   },
 });
 
-// Register Firebase messaging service worker
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/firebase-messaging-sw.js');
-}
-
 // Register PWA service worker with improved update handling
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

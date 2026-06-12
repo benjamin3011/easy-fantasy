@@ -6,6 +6,7 @@ import Input from '../../components/form/input/InputField';
 import Button from '../../components/ui/button/Button';
 import Alert from '../../components/ui/alert/Alert';
 import { createWeeklyTipsCallable, updateTipsOddsCallable, calculateTipsResultsCallable, repairProphetTotalsCallable } from '../../firebase/callables';
+import { APP_CONFIG } from '../../config/appConfig';
 
 export default function TipsTools() {
   const [message, setMessage] = useState<string | null>(null);
@@ -16,6 +17,7 @@ export default function TipsTools() {
   const [oddsLoading, setOddsLoading] = useState(false);
   const [resultsLoading, setResultsLoading] = useState(false);
   const [repairLoading, setRepairLoading] = useState(false);
+  const currentSeason = parseInt(APP_CONFIG.CURRENT_NFL_SEASON, 10);
 
   return (
     <div className="space-y-6">
@@ -157,8 +159,8 @@ export default function TipsTools() {
             <Input 
               id="repairSeasonInput" 
               type="number" 
-              value="2025" 
-              placeholder="2025" 
+              value={APP_CONFIG.CURRENT_NFL_SEASON} 
+              placeholder={APP_CONFIG.CURRENT_NFL_SEASON} 
               disabled={repairLoading} 
             />
           </div>
@@ -175,7 +177,7 @@ export default function TipsTools() {
                 try {
                   const res = await repairProphetTotalsCallable({ 
                     leagueId: leagueId.trim(),
-                    season: 2025
+                    season: currentSeason
                   });
                   setMessage(`✅ ${res.data.message} (${res.data.repairedCount} entries fixed)`);
                 } catch (e) {

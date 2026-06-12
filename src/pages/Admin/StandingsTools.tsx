@@ -5,7 +5,8 @@ import Label from '../../components/form/Label';
 import Input from '../../components/form/input/InputField';
 import Button from '../../components/ui/button/Button';
 import Alert from '../../components/ui/alert/Alert';
-import { calculateWeeklyScoresCallable, healthCheckStandingsCallable } from '../../firebase/callables';
+import { APP_CONFIG } from '../../config/appConfig';
+import { calculateWeeklyScoresCallable, healthCheckStandingsCallable, resetSeasonStandingsCallable } from '../../firebase/callables';
 
 export default function StandingsTools() {
   const [scoresWeek, setScoresWeek] = useState('');
@@ -16,6 +17,10 @@ export default function StandingsTools() {
   const [healthLeagueId, setHealthLeagueId] = useState('');
   const [dryRun, setDryRun] = useState(true);
   const [healthLoading, setHealthLoading] = useState(false);
+
+  const [resetLeagueId, setResetLeagueId] = useState('');
+  const [resetDryRun, setResetDryRun] = useState(true);
+  const [resetLoading, setResetLoading] = useState(false);
 
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +57,28 @@ export default function StandingsTools() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to run health check.');
     } finally { setHealthLoading(false); }
+  };
+
+  const triggerStandingsReset = async () => {
+    setMessage(null); setError(null);
+    if (!resetDryRun) {
+      const confirmed = window.confirm(
+        `Reset standings for ${resetLeagueId.trim() || 'all leagues'} in ${APP_CONFIG.CURRENT_NFL_SEASON}? This clears weekly points and total season points.`
+      );
+      if (!confirmed) return;
+    }
+
+    setResetLoading(true);
+    try {
+      const result = await resetSeasonStandingsCallable({
+        leagueId: resetLeagueId.trim() || undefined,
+        dryRun: resetDryRun,
+      });
+      setMessage(result.data.message || 'Standings reset completed.');
+      if (!result.data.success) setError(result.data.message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to reset standings.');
+    } finally { setResetLoading(false); }
   };
 
   return (
@@ -98,6 +125,27 @@ export default function StandingsTools() {
           <div className="flex md:justify-end">
             <Button onClick={triggerHealthCheck} disabled={healthLoading} className="w-full md:w-auto">
               {healthLoading ? 'Checking…' : 'Run Health Check'}
+            </Button>
+          </div>
+        </div>
+      </ComponentCard>
+
+      <ComponentCard title={`New Season Reset (${APP_CONFIG.CURRENT_NFL_SEASON})`}>
+        <p className='text-sm text-gray-600 dark:text-gray-400 mb-4'>
+          Clear visible league standings before Week 1. Old lineups, usage counts, schedules, tips, and game stats stay untouched.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+          <div>
+            <Label htmlFor="resetLeagueIdInput">League ID (optional)</Label>
+            <Input id="resetLeagueIdInput" type="text" value={resetLeagueId} onChange={(e) => setResetLeagueId(e.target.value)} placeholder="Leave empty for all leagues" disabled={resetLoading} />
+          </div>
+          <div className="flex items-center space-x-2">
+            <input id="resetDryRunToggle" type="checkbox" checked={resetDryRun} onChange={(e) => setResetDryRun(e.target.checked)} disabled={resetLoading} />
+            <Label htmlFor="resetDryRunToggle">Dry Run</Label>
+          </div>
+          <div className="flex md:justify-end">
+            <Button onClick={triggerStandingsReset} disabled={resetLoading} className="w-full md:w-auto" variant={resetDryRun ? 'outline' : 'destructive'}>
+              {resetLoading ? 'Working...' : resetDryRun ? 'Preview Reset' : 'Reset Standings'}
             </Button>
           </div>
         </div>

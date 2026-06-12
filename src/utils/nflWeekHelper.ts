@@ -2,7 +2,7 @@
 
 // Configuration for current season (should match backend config)
 const CURRENT_SEASON_TYPE = "reg"; // "pre" for pre-season, "reg" for regular season
-const SEASON_START_DATE_REF = new Date('2025-09-03'); // First Wednesday of the regular season
+const SEASON_START_DATE_REF = new Date('2026-09-09'); // Week 1 starts on Wednesday in 2026
 
 /**
  * Helper function to calculate the current NFL week with weeks starting from Wednesday to Tuesday
