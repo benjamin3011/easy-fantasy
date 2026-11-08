@@ -8,6 +8,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 // Import shared config/secrets
 import { secrets, hosts, config, functionOptions } from './config';
 import { calculateCurrentNFLWeek, safeParseFloat } from './common';
+import { calculateConsensusWinProbabilities } from './bettingOdds';
 
 const db = admin.firestore();
 
@@ -15,8 +16,10 @@ const db = admin.firestore();
 interface BettingOdds {
   sportsBook: string;
   odds: {
-    awayTeamMLOdds: string;
-    homeTeamMLOdds: string;
+    awayTeamML?: string;
+    homeTeamML?: string;
+    awayTeamMLOdds?: string;
+    homeTeamMLOdds?: string;
     awayTeamSpread: string;
     homeTeamSpread: string;
     totalOver: string;
@@ -106,26 +109,6 @@ const getTank01Headers = () => ({
 // --- Utility Functions ---
 
 /**
- * Convert moneyline odds to win probability
- * @param odds Moneyline odds (e.g., "+245", "-305")
- * @returns Win probability as percentage (0-100)
- */
-function moneylineToWinProbability(odds: string): number {
-  const cleanOdds = odds.replace(/[+\s]/g, '');
-  const numericOdds = parseFloat(cleanOdds);
-  
-  if (isNaN(numericOdds)) return 50; // Default to 50% if invalid
-  
-  if (numericOdds > 0) {
-    // Positive odds (underdog)
-    return (100 / (numericOdds + 100)) * 100;
-  } else {
-    // Negative odds (favorite)
-    return (Math.abs(numericOdds) / (Math.abs(numericOdds) + 100)) * 100;
-  }
-}
-
-/**
  * Calculate average spread from multiple sportsbooks
  */
 function calculateAverageSpread(sportsBooks: BettingOdds[]): number {
@@ -147,34 +130,6 @@ function calculateAverageTotal(sportsBooks: BettingOdds[]): number {
   
   if (totals.length === 0) return 45; // Default NFL total
   return totals.reduce((sum, total) => sum + total, 0) / totals.length;
-}
-
-/**
- * Calculate consensus win probabilities from multiple sportsbooks
- */
-function calculateConsensusWinProbabilities(sportsBooks: BettingOdds[]): { home: number; away: number } {
-  const homeProbs = sportsBooks
-    .map(book => moneylineToWinProbability(book.odds.homeTeamMLOdds))
-    .filter(prob => !isNaN(prob) && prob > 0);
-  
-  const awayProbs = sportsBooks
-    .map(book => moneylineToWinProbability(book.odds.awayTeamMLOdds))
-    .filter(prob => !isNaN(prob) && prob > 0);
-  
-  const avgHomeProb = homeProbs.length > 0 
-    ? homeProbs.reduce((sum, prob) => sum + prob, 0) / homeProbs.length 
-    : 50;
-  
-  const avgAwayProb = awayProbs.length > 0 
-    ? awayProbs.reduce((sum, prob) => sum + prob, 0) / awayProbs.length 
-    : 50;
-  
-  // Normalize to ensure they add up to 100%
-  const total = avgHomeProb + avgAwayProb;
-  return {
-    home: Math.round((avgHomeProb / total) * 100),
-    away: Math.round((avgAwayProb / total) * 100)
-  };
 }
 
 // --- Core Functions ---
@@ -315,10 +270,11 @@ async function createWeeklyTipsPoll(leagueId: string, week: number, season: numb
         firstGameTime = gameTime;
       }
 
-      if (bettingData && bettingData.body.sportsBooks.length > 0) {
-        const winProbs = calculateConsensusWinProbabilities(bettingData.body.sportsBooks);
-        const avgSpread = calculateAverageSpread(bettingData.body.sportsBooks);
-        const avgTotal = calculateAverageTotal(bettingData.body.sportsBooks);
+      const sportsBooks = bettingData?.body?.sportsBooks ?? [];
+      const winProbs = calculateConsensusWinProbabilities(sportsBooks);
+      if (bettingData && winProbs) {
+        const avgSpread = calculateAverageSpread(sportsBooks);
+        const avgTotal = calculateAverageTotal(sportsBooks);
 
         logger.info(`Using betting odds for game ${game.gameID}: spread=${avgSpread.toFixed(1)}, total=${avgTotal.toFixed(1)}, homeWin=${winProbs.home}%`);
 
@@ -963,10 +919,11 @@ export const updateTipsOdds = onCall(
         const updatedGames = tipsPoll.games.map((game: TippableGame) => {
           const bettingData = allOddsMap[game.gameId];
           
-          if (bettingData && bettingData.body.sportsBooks.length > 0) {
-            const winProbs = calculateConsensusWinProbabilities(bettingData.body.sportsBooks);
-            const avgSpread = calculateAverageSpread(bettingData.body.sportsBooks);
-            const avgTotal = calculateAverageTotal(bettingData.body.sportsBooks);
+          const sportsBooks = bettingData?.body?.sportsBooks ?? [];
+          const winProbs = calculateConsensusWinProbabilities(sportsBooks);
+          if (winProbs) {
+            const avgSpread = calculateAverageSpread(sportsBooks);
+            const avgTotal = calculateAverageTotal(sportsBooks);
 
             logger.info(`Updating odds for game ${game.gameId}: spread=${avgSpread.toFixed(1)}, total=${avgTotal.toFixed(1)}, homeWin=${winProbs.home}%`);
 
@@ -1158,10 +1115,11 @@ export const scheduledUpdateTipsOdds = onSchedule(
          const tipsPoll = doc.data();
          const updatedGames = tipsPoll.games.map((game: TippableGame) => {
            const odds = gameOdds[game.gameId];
-           if (odds && odds.body?.sportsBooks?.length > 0) {
-             const winProbs = calculateConsensusWinProbabilities(odds.body.sportsBooks);
-             const avgSpread = calculateAverageSpread(odds.body.sportsBooks);
-             const avgTotal = calculateAverageTotal(odds.body.sportsBooks);
+           const sportsBooks = odds?.body?.sportsBooks ?? [];
+           const winProbs = calculateConsensusWinProbabilities(sportsBooks);
+           if (winProbs) {
+             const avgSpread = calculateAverageSpread(sportsBooks);
+             const avgTotal = calculateAverageTotal(sportsBooks);
              
              return {
                ...game,

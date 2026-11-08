@@ -5,6 +5,7 @@ import * as admin from "firebase-admin";
 // Import shared config/secrets
 import { leagueOptions, config } from './config'; // Use league specific options
 import { calculateCurrentNFLWeek } from './common';
+import { calculateConsensusWinProbabilities } from './bettingOdds';
 
 // Import what we need for odds fetching
 import axios from 'axios';
@@ -19,8 +20,10 @@ const db = admin.firestore();
 interface BettingOdds {
   sportsBook: string;
   odds: {
-    awayTeamMLOdds: string;
-    homeTeamMLOdds: string;
+    awayTeamML?: string;
+    homeTeamML?: string;
+    awayTeamMLOdds?: string;
+    homeTeamMLOdds?: string;
     awayTeamSpread: string;
     homeTeamSpread: string;
     totalOver: string;
@@ -66,19 +69,6 @@ const getTank01Headers = () => ({
   'x-rapidapi-host': hosts.TANK01_NFL_API,
 });
 
-function moneylineToWinProbability(odds: string): number {
-  const cleanOdds = odds.replace(/[+\s]/g, '');
-  const numericOdds = parseFloat(cleanOdds);
-  
-  if (isNaN(numericOdds)) return 50;
-  
-  if (numericOdds > 0) {
-    return (100 / (numericOdds + 100)) * 100;
-  } else {
-    return (Math.abs(numericOdds) / (Math.abs(numericOdds) + 100)) * 100;
-  }
-}
-
 function calculateAverageSpread(sportsBooks: BettingOdds[]): number {
   const spreads = sportsBooks
     .map(book => parseFloat(book.odds.homeTeamSpread))
@@ -95,30 +85,6 @@ function calculateAverageTotal(sportsBooks: BettingOdds[]): number {
   
   if (totals.length === 0) return 45;
   return totals.reduce((sum, total) => sum + total, 0) / totals.length;
-}
-
-function calculateConsensusWinProbabilities(sportsBooks: BettingOdds[]): { home: number; away: number } {
-  const homeProbs = sportsBooks
-    .map(book => moneylineToWinProbability(book.odds.homeTeamMLOdds))
-    .filter(prob => !isNaN(prob) && prob > 0);
-  
-  const awayProbs = sportsBooks
-    .map(book => moneylineToWinProbability(book.odds.awayTeamMLOdds))
-    .filter(prob => !isNaN(prob) && prob > 0);
-  
-  const avgHomeProb = homeProbs.length > 0 
-    ? homeProbs.reduce((sum, prob) => sum + prob, 0) / homeProbs.length 
-    : 50;
-  
-  const avgAwayProb = awayProbs.length > 0 
-    ? awayProbs.reduce((sum, prob) => sum + prob, 0) / awayProbs.length 
-    : 50;
-  
-  const total = avgHomeProb + avgAwayProb;
-  return {
-    home: Math.round((avgHomeProb / total) * 100),
-    away: Math.round((avgAwayProb / total) * 100)
-  };
 }
 
 async function fetchDayBettingOdds(gameDate: string): Promise<Record<string, BettingOddsResponse> | null> {
@@ -262,10 +228,11 @@ async function createInitialTipsPollForLeague(leagueId: string): Promise<void> {
         firstGameTime = gameTime;
       }
 
-      if (bettingData && bettingData.body.sportsBooks.length > 0) {
-        const winProbs = calculateConsensusWinProbabilities(bettingData.body.sportsBooks);
-        const avgSpread = calculateAverageSpread(bettingData.body.sportsBooks);
-        const avgTotal = calculateAverageTotal(bettingData.body.sportsBooks);
+      const sportsBooks = bettingData?.body?.sportsBooks ?? [];
+      const winProbs = calculateConsensusWinProbabilities(sportsBooks);
+      if (bettingData && winProbs) {
+        const avgSpread = calculateAverageSpread(sportsBooks);
+        const avgTotal = calculateAverageTotal(sportsBooks);
 
         logger.info(`Using betting odds for game ${game.gameID}: spread=${avgSpread.toFixed(1)}, total=${avgTotal.toFixed(1)}, homeWin=${winProbs.home}%`);
 
