@@ -618,7 +618,7 @@ export const createWeeklyTips = onCall(
     const { leagueId, week, season } = request.data;
 
     if (!leagueId || !week) {
-      throw new Error('League ID and week are required');
+      throw new HttpsError('invalid-argument', 'League ID and week are required');
     }
 
     const currentSeason = season || parseInt(config.CURRENT_NFL_SEASON);
@@ -633,13 +633,13 @@ export const submitTips = onCall(
   { ...functionOptions },
   async (request) => {
     if (!request.auth?.uid) {
-      throw new Error('Authentication required');
+      throw new HttpsError('unauthenticated', 'Authentication required');
     }
 
     const { leagueId, week, season, tips } = request.data;
 
     if (!leagueId || !week || !tips) {
-      throw new Error('League ID, week, and tips are required');
+      throw new HttpsError('invalid-argument', 'League ID, week, and tips are required');
     }
 
     const currentSeason = season || parseInt(config.CURRENT_NFL_SEASON);
@@ -733,13 +733,13 @@ export const getProphetLeaderboard = onCall(
   { ...functionOptions },
   async (request) => {
     if (!request.auth?.uid) {
-      throw new Error('Authentication required');
+      throw new HttpsError('unauthenticated', 'Authentication required');
     }
 
     const { leagueId, season } = request.data;
 
     if (!leagueId) {
-      throw new Error('League ID is required');
+      throw new HttpsError('invalid-argument', 'League ID is required');
     }
 
     try {
@@ -748,7 +748,7 @@ export const getProphetLeaderboard = onCall(
       // Get league data for member names
       const leagueDoc = await db.collection('leagues').doc(leagueId).get();
       if (!leagueDoc.exists) {
-        throw new Error('League not found');
+        throw new HttpsError('not-found', 'League not found');
       }
       
       const leagueData = leagueDoc.data();
@@ -817,8 +817,11 @@ export const getProphetLeaderboard = onCall(
       return { success: true, leaderboard };
 
     } catch (error) {
+      if (error instanceof HttpsError) {
+        throw error;
+      }
       logger.error('Error getting prophet leaderboard:', error);
-      throw new Error(`Failed to get leaderboard: ${error}`);
+      throw new HttpsError('internal', `Failed to get leaderboard: ${error}`);
     }
   }
 );
@@ -834,7 +837,7 @@ export const calculateTipsResults = onCall(
     const { leagueId, week, season } = request.data;
 
     if (!leagueId || !week) {
-      throw new Error('League ID and week are required');
+      throw new HttpsError('invalid-argument', 'League ID and week are required');
     }
 
     const currentSeason = season || parseInt(config.CURRENT_NFL_SEASON);
@@ -951,7 +954,7 @@ export const updateTipsOdds = onCall(
 
     } catch (error) {
       logger.error('Error updating tips odds:', error);
-      throw new Error(`Failed to update odds: ${error}`);
+      throw new HttpsError('internal', `Failed to update odds: ${error}`);
     }
   }
 );
