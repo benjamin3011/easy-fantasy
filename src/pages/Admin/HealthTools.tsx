@@ -17,7 +17,7 @@ interface HealthCheckSummary {
   failed: number;
   warnings: number;
   results: HealthCheckResult[];
-  timestamp: any;
+  timestamp: unknown; // serialized Firestore Timestamp from the callable; not displayed
 }
 
 interface SystemHealthResponse {

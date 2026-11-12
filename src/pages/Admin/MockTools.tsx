@@ -195,7 +195,7 @@ export default function MockTools() {
     const collectionName = mockStatsEntityType === 'player' ? 'players' : 'teams';
     const docPath = `${collectionName}/${mockStatsEntityId.trim()}/gamestats/${mockStatsGameId.trim()}`;
     interface BaseMockStatData { gameId: string; season: number; week: number; lastUpdated: Date; }
-    const statsToSave: BaseMockStatData & Record<string, any> = {
+    const statsToSave: BaseMockStatData & Record<string, unknown> = {
       gameId: mockStatsGameId.trim(),
       season: parseInt(mockSeason, 10),
       week: parseInt(mockWeek, 10),

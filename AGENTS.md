@@ -147,7 +147,7 @@ npm install --prefix functions
 | Dev-Server | `npm run dev` — Vite, Port **4173**, Host `0.0.0.0` |
 | Build | `npm run build` — `tsc -b && vite build`, Output `dist/` |
 | Preview | `npm run preview` |
-| Lint Frontend | `npm run lint` — `eslint .` (ignore nur `dist`) |
+| Lint Frontend | `npm run lint` — `eslint .` (ignoriert `dist`, `dev-dist`, `functions/lib`, `**/*.json`) |
 | Lint Functions | `npm --prefix functions run lint` |
 | Build Functions | `npm --prefix functions run build` — `tsc` nach `functions/lib` |
 | Functions-Emulator | `npm --prefix functions run serve` — nur Functions |

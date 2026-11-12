@@ -67,6 +67,26 @@ export interface MemberLineupVisibility {
 }
 
 /**
+ * Fields of a single pick that the visibility logic reads
+ */
+export interface VisibilityLineupPick {
+  id: string;
+  type: 'player' | 'team';
+  gameId?: string;
+  name?: string;
+  teamAbbreviation?: string;
+  actualFantasyPoints?: number;
+}
+
+/**
+ * Fields of a lineup (StoredLineupData or similar) that the visibility logic reads
+ */
+export interface VisibilityLineupInput {
+  picks?: Record<string, VisibilityLineupPick | null | undefined>;
+  captainPlayerId?: string | null;
+}
+
+/**
  * Check if a specific player/team should be visible based on their game start time
  */
 export function checkEntityVisibility(
@@ -119,7 +139,7 @@ export function checkEntityVisibility(
  * Process a complete lineup to determine visibility for each slot
  */
 export function processLineupVisibility(
-  lineup: any, // StoredLineupData or similar
+  lineup: VisibilityLineupInput | null | undefined,
   weeklySchedule: FirestoreWeeklySchedule | null,
   currentTime: number = Math.floor(Date.now() / 1000)
 ): VisibleLineupSlot[] {
@@ -130,7 +150,7 @@ export function processLineupVisibility(
   }
 
   // Process each position slot
-  Object.entries(lineup.picks).forEach(([position, pick]: [string, any]) => {
+  Object.entries(lineup.picks).forEach(([position, pick]) => {
     if (!pick) {
       // Empty slot
       slots.push({
@@ -187,7 +207,7 @@ export function calculateLineupStats(slots: VisibleLineupSlot[]): {
   totalSlots: number;
 } {
   let totalVisiblePoints = 0;
-  let totalPossiblePoints = 0;
+  const totalPossiblePoints = 0;
   let filledSlots = 0;
   let visibleSlots = 0;
   

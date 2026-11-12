@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { FirestoreWeeklySchedule } from '../services/lineupVisibilityService';
+import { FirestoreWeeklySchedule, GameInfoForWeek, VisibilityLineupInput } from '../services/lineupVisibilityService';
 import {
   processLineupVisibility,
   calculateLineupStats,
@@ -43,7 +43,7 @@ export interface UseLineupVisibilityReturn {
  * Hook for processing a single lineup's visibility
  */
 export function useLineupVisibility(
-  lineup: any, // StoredLineupData or similar
+  lineup: VisibilityLineupInput | null | undefined, // StoredLineupData or similar
   weeklySchedule: FirestoreWeeklySchedule | null,
   options: UseLineupVisibilityOptions = {}
 ): UseLineupVisibilityReturn {
@@ -146,7 +146,7 @@ export function useMultipleLineupVisibility(
     userId: string;
     userName: string;
     teamName: string;
-    lineup: any;
+    lineup: VisibilityLineupInput | null | undefined;
   }>,
   weeklySchedule: FirestoreWeeklySchedule | null,
   options: UseLineupVisibilityOptions = {}
@@ -310,7 +310,7 @@ export function useEntityVisibility(
       };
     }
 
-    const game = weeklySchedule.games.find((g: any) => g.gameID === gameId);
+    const game = weeklySchedule.games.find((g: GameInfoForWeek) => g.gameID === gameId);
     if (!game || !game.gameTime_epoch) {
       return {
         isVisible: false,

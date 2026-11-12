@@ -6,6 +6,9 @@ import { ExpirationPlugin } from 'workbox-expiration';
 
 declare const self: ServiceWorkerGlobalScope;
 
+// Optional ENV marker on the worker scope; not part of ServiceWorkerGlobalScope
+type SelfWithEnv = ServiceWorkerGlobalScope & { ENV?: string };
+
 interface PushPayload {
   title?: string;
   body?: string;
@@ -51,10 +54,10 @@ cleanupOutdatedCaches();
 self.addEventListener('message', (event) => {
   // Dev-only logs to avoid noise in production
   // eslint-disable-next-line no-undef
-  if (typeof self !== 'undefined' && (self as any).ENV !== 'production') console.log('SW received message:', event.data);
+  if (typeof self !== 'undefined' && (self as SelfWithEnv).ENV !== 'production') console.log('SW received message:', event.data);
   if (event.data && event.data.type === 'SKIP_WAITING') {
     // eslint-disable-next-line no-undef
-    if (typeof self !== 'undefined' && (self as any).ENV !== 'production') console.log('SW: Skipping waiting and claiming clients');
+    if (typeof self !== 'undefined' && (self as SelfWithEnv).ENV !== 'production') console.log('SW: Skipping waiting and claiming clients');
     self.skipWaiting();
     self.clients.claim();
   }
@@ -63,14 +66,14 @@ self.addEventListener('message', (event) => {
 // Handle install event
 self.addEventListener('install', () => {
   // eslint-disable-next-line no-undef
-  if (typeof self !== 'undefined' && (self as any).ENV !== 'production') console.log('SW: Installing');
+  if (typeof self !== 'undefined' && (self as SelfWithEnv).ENV !== 'production') console.log('SW: Installing');
   // Don't skip waiting automatically - wait for message
 });
 
 // Handle activate event
 self.addEventListener('activate', (event) => {
   // eslint-disable-next-line no-undef
-  if (typeof self !== 'undefined' && (self as any).ENV !== 'production') console.log('SW: Activating');
+  if (typeof self !== 'undefined' && (self as SelfWithEnv).ENV !== 'production') console.log('SW: Activating');
   // Claim clients when activated
   event.waitUntil(self.clients.claim());
 });
@@ -231,4 +234,4 @@ const navigationRoute = new NavigationRoute(navigationHandler, {
 registerRoute(navigationRoute);
 
 // eslint-disable-next-line no-undef
-if (typeof self !== 'undefined' && (self as any).ENV !== 'production') console.log('SW: Custom service worker loaded'); 
+if (typeof self !== 'undefined' && (self as SelfWithEnv).ENV !== 'production') console.log('SW: Custom service worker loaded'); 

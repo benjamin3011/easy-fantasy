@@ -23,7 +23,7 @@ export default function NotificationsTools() {
   const [achType, setAchType] = useState('');
   const [weekCount, setWeekCount] = useState('');
 
-  const call = async (name: string, data?: any) => {
+  const call = async (name: string, data?: unknown) => {
     setMessage(null); setError(null);
     try {
       const fn = httpsCallable(functions, name);

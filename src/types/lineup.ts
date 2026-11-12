@@ -1,3 +1,5 @@
+import type { Timestamp } from 'firebase/firestore';
+
 export type PositionKey =
   | 'QB'
   | 'RB'
@@ -203,7 +205,7 @@ export interface StoredLineupPick {
   // Optimization: Store names to avoid additional fetches when viewing lineups
   name?: string; // Player/Team name (optional for backward compatibility)
   teamAbbreviation?: string; // Team abbreviation (optional for backward compatibility)
-  selectedAt?: any; // Firestore Timestamp when selected
+  selectedAt?: Timestamp; // Firestore Timestamp when selected
 }
 
 // Represents the 'picks' object stored in Firestore
