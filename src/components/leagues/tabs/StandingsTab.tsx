@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import { League } from '../../../utils/leagues';
+import { getCaptainMultiplier } from '../../../utils/captainMultiplier';
 import ModernLeaderboard from '../ModernLeaderboard';
 import LeagueQuickActions from '../LeagueQuickActions';
 
@@ -21,7 +22,11 @@ export default function StandingsTab({ league }: StandingsTabProps) {
           League Standings
         </h3>
         <Suspense fallback={<div className="h-64 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" />}>
-          <ModernLeaderboard members={league.members} leagueId={league.id} />
+          <ModernLeaderboard
+            members={league.members}
+            leagueId={league.id}
+            captainMultiplier={getCaptainMultiplier(league)}
+          />
         </Suspense>
       </div>
 

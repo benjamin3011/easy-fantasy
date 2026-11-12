@@ -5,6 +5,7 @@ import * as admin from "firebase-admin";
 // Import shared config/secrets
 import { adminOptions, config } from './config';
 import { FirestoreLeague, FirestoreWeeklyLineup, FirestoreUser } from './types';
+import { getCaptainMultiplier, isCaptainPointsConsistent } from './captain';
 
 const db = admin.firestore();
 
@@ -232,7 +233,9 @@ async function checkScoreIntegrity(): Promise<HealthCheckResult> {
     
     const lineupsSnap = await lineupsRef.get();
     let inconsistentCount = 0;
-    
+    // Captain-Faktor je Liga, damit jede Liga nur einmal gelesen wird
+    const captainMultiplierByLeague = new Map<string, number>();
+
     for (const doc of lineupsSnap.docs) {
       const lineup = doc.data() as FirestoreWeeklyLineup;
       
@@ -243,8 +246,13 @@ async function checkScoreIntegrity(): Promise<HealthCheckResult> {
       
       // Check captain points consistency
       if (lineup.captainBasePoints && lineup.captainMultipliedPoints) {
-        const expectedMultiplied = lineup.captainBasePoints * 2; // Default multiplier
-        if (Math.abs(lineup.captainMultipliedPoints - expectedMultiplied) > 0.1) {
+        let captainMultiplier = captainMultiplierByLeague.get(lineup.leagueId);
+        if (captainMultiplier === undefined) {
+          const leagueDoc = await db.collection('leagues').doc(lineup.leagueId).get();
+          captainMultiplier = getCaptainMultiplier(leagueDoc.data() as FirestoreLeague | undefined);
+          captainMultiplierByLeague.set(lineup.leagueId, captainMultiplier);
+        }
+        if (!isCaptainPointsConsistent(lineup.captainBasePoints, lineup.captainMultipliedPoints, captainMultiplier)) {
           inconsistentCount++;
         }
       }
