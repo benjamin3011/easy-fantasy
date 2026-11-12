@@ -198,8 +198,9 @@ export function processLineupVisibility(
 
 /**
  * Calculate lineup statistics for visibility display
+ * @param captainMultiplier - Captain-Faktor der Liga (siehe getCaptainMultiplier)
  */
-export function calculateLineupStats(slots: VisibleLineupSlot[]): {
+export function calculateLineupStats(slots: VisibleLineupSlot[], captainMultiplier: number): {
   totalVisiblePoints: number;
   totalPossiblePoints: number;
   completionPercentage: number;
@@ -217,7 +218,7 @@ export function calculateLineupStats(slots: VisibleLineupSlot[]): {
       
       if (slot.isVisible && slot.entity.actualPoints) {
         const points = slot.entity.actualPoints;
-        const multiplier = slot.isCaptain ? 1.5 : 1;
+        const multiplier = slot.isCaptain ? captainMultiplier : 1;
         
         totalVisiblePoints += points * multiplier;
         visibleSlots++;

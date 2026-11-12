@@ -7,10 +7,11 @@ import MemberLineupInline from './MemberLineupInline';
 interface ModernLeaderboardProps {
   members: Member[];
   leagueId: string; // Add leagueId for lineup modal
+  captainMultiplier: number; // Captain-Faktor der Liga (getCaptainMultiplier)
   useMockData?: boolean; // Temporary prop for testing
 }
 
-export default function ModernLeaderboard({ members, leagueId, useMockData = false }: ModernLeaderboardProps) {
+export default function ModernLeaderboard({ members, leagueId, captainMultiplier, useMockData = false }: ModernLeaderboardProps) {
   const [showAll, setShowAll] = useState(false);
   const [expandedMember, setExpandedMember] = useState<string | null>(null);
   const [userProfiles, setUserProfiles] = useState<Map<string, UserProfile>>(new Map());
@@ -365,7 +366,7 @@ export default function ModernLeaderboard({ members, leagueId, useMockData = fal
             {/* Inline Lineup Expansion */}
             {expandedMember === member.uid && (
               <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 animate-in slide-in-from-top-2 duration-300">
-                <MemberLineupInline member={member} leagueId={leagueId} />
+                <MemberLineupInline member={member} leagueId={leagueId} captainMultiplier={captainMultiplier} />
               </div>
             )}
 

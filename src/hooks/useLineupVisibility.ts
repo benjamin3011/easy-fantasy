@@ -45,6 +45,7 @@ export interface UseLineupVisibilityReturn {
 export function useLineupVisibility(
   lineup: VisibilityLineupInput | null | undefined, // StoredLineupData or similar
   weeklySchedule: FirestoreWeeklySchedule | null,
+  captainMultiplier: number, // Captain-Faktor der Liga (getCaptainMultiplier)
   options: UseLineupVisibilityOptions = {}
 ): UseLineupVisibilityReturn {
   const {
@@ -87,8 +88,8 @@ export function useLineupVisibility(
 
   // Calculate stats
   const stats = useMemo(() => {
-    return calculateLineupStats(visibleSlots);
-  }, [visibleSlots]);
+    return calculateLineupStats(visibleSlots, captainMultiplier);
+  }, [visibleSlots, captainMultiplier]);
 
   // Calculate next reveal time
   const nextReveal = useMemo(() => {
@@ -149,6 +150,7 @@ export function useMultipleLineupVisibility(
     lineup: VisibilityLineupInput | null | undefined;
   }>,
   weeklySchedule: FirestoreWeeklySchedule | null,
+  captainMultiplier: number, // Captain-Faktor der Liga (getCaptainMultiplier)
   options: UseLineupVisibilityOptions = {}
 ): {
   memberLineups: MemberLineupVisibility[];
@@ -200,7 +202,7 @@ export function useMultipleLineupVisibility(
     
     const processed = lineups.map(({ userId, userName, teamName, lineup }) => {
       const slots = processLineupVisibility(lineup, weeklySchedule, currentTime);
-      const stats = calculateLineupStats(slots);
+      const stats = calculateLineupStats(slots, captainMultiplier);
       
       return {
         userId,
@@ -215,7 +217,7 @@ export function useMultipleLineupVisibility(
     });
     
     return processed;
-  }, [lineups, weeklySchedule, currentTime]);
+  }, [lineups, weeklySchedule, currentTime, captainMultiplier]);
 
   // Update loading state based on data availability
   useEffect(() => {

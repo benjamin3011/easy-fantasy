@@ -13,6 +13,7 @@ import {
 import type { GameInfoFromSchedule } from '../../services/lineupFetchingService';
 import { fetchWeeklySchedule } from '../../services/lineupFetchingService';
 import { APP_CONFIG } from '../../config/appConfig';
+import { getCaptainMultiplier } from '../../utils/captainMultiplier';
 import { getFantasyNews, formatTimeAgo, type NewsItem } from '../../services/newsService';
 import { SelectableEntity, SelectablePlayer, SelectableTeam, PositionKey, InjuryStatus } from '../../types/lineup';
 import Spinner from '../ui/Spinner';
@@ -153,7 +154,8 @@ const getGameStatusFromCode = (gameStatusCode?: string | number): 'upcoming' | '
 
 const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek, isMobileView = false }) => {
   const { user } = useAuth();
-  const { selectedLeagueId } = useLeagueContext();
+  const { selectedLeagueId, selectedLeague } = useLeagueContext();
+  const captainMultiplier = getCaptainMultiplier(selectedLeague);
   const season = APP_CONFIG.CURRENT_NFL_SEASON;
   const [gamesWithPlayers, setGamesWithPlayers] = useState<GameWithPlayers[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -451,7 +453,7 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
 
             // Apply captain multiplier if this player is the captain
             if (data.isCaptain && data.type === 'player' && currentPoints > 0) {
-              currentPoints = currentPoints * 1.5; // Captain multiplier
+              currentPoints = currentPoints * captainMultiplier; // Captain multiplier
             }
 
             // Create display name
@@ -525,7 +527,7 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
     if (currentNflWeek > 0) {
       loadGamesData();
     }
-  }, [currentNflWeek, user?.uid, selectedLeagueId, scheduleData, allNewsData, gameScoresData]);
+  }, [currentNflWeek, user?.uid, selectedLeagueId, captainMultiplier, scheduleData, allNewsData, gameScoresData]);
 
   const refreshGameScores = useCallback(async (gamesSnapshot: GameWithPlayers[]) => {
     if (gamesSnapshot.length === 0) return;
@@ -612,7 +614,7 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
               // Apply captain multiplier if applicable
               let fantasyPoints = baseFantasyPoints;
               if (player.isCaptain) {
-                fantasyPoints = baseFantasyPoints * 1.5; // Captain multiplier
+                fantasyPoints = baseFantasyPoints * captainMultiplier; // Captain multiplier
               }
 
               const processedPlay: ProcessedScoringPlay = {
@@ -653,7 +655,7 @@ const UnifiedGamesWidget: React.FC<UnifiedGamesWidgetProps> = ({ currentNflWeek,
         return newSet;
       });
     }
-  }, [user?.uid, gamesWithPlayers, scoringPlaysCache]);
+  }, [user?.uid, gamesWithPlayers, scoringPlaysCache, captainMultiplier]);
 
   // Auto-refresh game scores every 30 seconds (scoring plays loaded on demand)
   useEffect(() => {

@@ -34,11 +34,13 @@ interface VisibleSlot {
 interface MemberLineupInlineProps {
   member: Member;
   leagueId: string;
+  captainMultiplier: number; // Captain-Faktor der Liga (getCaptainMultiplier)
 }
 
 export default function MemberLineupInline({
   member,
-  leagueId
+  leagueId,
+  captainMultiplier
 }: MemberLineupInlineProps) {
   const { effectiveWeek } = useLeagueContext();
   const { user } = useAuth();
@@ -312,7 +314,7 @@ export default function MemberLineupInline({
                         {(() => {
                           const basePoints = slot.entity.actualPoints;
                           const finalPoints = slot.isCaptain && slot.entity.type === 'player' 
-                            ? basePoints * 1.5 
+                            ? basePoints * captainMultiplier
                             : basePoints;
                           return finalPoints.toFixed(2);
                         })()}
