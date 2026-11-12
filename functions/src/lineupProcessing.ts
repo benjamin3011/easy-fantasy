@@ -6,7 +6,7 @@ import * as admin from "firebase-admin";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 // Import config, helpers, types
 import { lineupProcessingOptions, config } from './config';
-import { safeParseInt, calculateCurrentNFLWeek } from './common';
+import { safeParseInt, calculateCurrentNFLWeek, requireAdmin } from './common';
 
 const db = admin.firestore();
 import {
@@ -521,8 +521,8 @@ interface CalculateScoresPayload {
 export const calculateWeeklyScores = onCall(
     { ...lineupProcessingOptions, timeoutSeconds: 540, memory: "1GiB" },
     async (request): Promise<GenericResult> => { // Now uses the defined GenericResult
-        // 1. Auth/Admin Check (Optional)
-        // if (request.auth?.token?.admin !== true) { throw new HttpsError('permission-denied', 'Admin only.'); }
+        // 1. Auth/Admin Check
+        requireAdmin(request);
 
         // 2. Input Validation
         const { week, leagueId } = request.data as CalculateScoresPayload;

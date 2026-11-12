@@ -7,7 +7,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 
 // Import shared config/secrets
 import { secrets, hosts, config, functionOptions } from './config';
-import { calculateCurrentNFLWeek, safeParseFloat } from './common';
+import { calculateCurrentNFLWeek, safeParseFloat, requireAdmin } from './common';
 import { calculateConsensusWinProbabilities } from './bettingOdds';
 
 const db = admin.firestore();
@@ -613,9 +613,7 @@ async function calculateWeeklyTipsResults(leagueId: string, week: number, season
 export const createWeeklyTips = onCall(
   { ...functionOptions },
   async (request) => {
-    if (!request.auth?.uid) {
-      throw new Error('Authentication required');
-    }
+    requireAdmin(request);
 
     const { leagueId, week, season } = request.data;
 
@@ -655,8 +653,10 @@ export const submitTips = onCall(
 export const repairProphetTotals = onCall(
   { ...functionOptions },
   async (request) => {
+    requireAdmin(request);
+
     const { leagueId, season } = request.data;
-    
+
     if (!leagueId || !season) {
       throw new HttpsError('invalid-argument', 'Missing leagueId or season');
     }
@@ -829,9 +829,7 @@ export const getProphetLeaderboard = onCall(
 export const calculateTipsResults = onCall(
   { ...functionOptions },
   async (request) => {
-    if (!request.auth?.uid) {
-      throw new Error('Authentication required');
-    }
+    requireAdmin(request);
 
     const { leagueId, week, season } = request.data;
 
@@ -853,9 +851,7 @@ export const updateTipsOdds = onCall(
     secrets: [secrets.TANK01_KEY]
   },
   async (request) => {
-    if (!request.auth?.uid) {
-      throw new Error('Authentication required');
-    }
+    requireAdmin(request);
 
     const { week, season } = request.data;
     const currentWeek = week || calculateCurrentNFLWeek();

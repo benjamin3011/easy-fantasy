@@ -1,5 +1,22 @@
 // src/common.ts
+import { HttpsError } from 'firebase-functions/v2/https';
+import type { CallableRequest } from 'firebase-functions/v2/https';
 import { config } from './config';
+
+/**
+ * Ensures the caller of a callable function is signed in and has the
+ * custom claim `admin: true`. Throws before any data is read or written.
+ * @returns The caller's auth data.
+ */
+export const requireAdmin = (request: Pick<CallableRequest, 'auth'>): NonNullable<CallableRequest['auth']> => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Anmeldung erforderlich.');
+  }
+  if (request.auth.token?.admin !== true) {
+    throw new HttpsError('permission-denied', 'Nur für Admins.');
+  }
+  return request.auth;
+};
 
 /**
  * Calculates the current NFL week based on a Wednesday-Tuesday cycle.

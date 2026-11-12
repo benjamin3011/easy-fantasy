@@ -4,7 +4,7 @@ import webpush from 'web-push';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { config, REGION, secrets } from './config';
-import { calculateCurrentNFLWeek } from './common';
+import { calculateCurrentNFLWeek, requireAdmin } from './common';
 import type { NotificationPreferences, FirestoreUser } from './types';
 import { logger } from 'firebase-functions/v2';
 
@@ -645,18 +645,9 @@ export const checkTipsReminders = onSchedule(
 export const triggerLineupDeadlineCheck = onCall(
   { region: REGION, cors: true, secrets: [secrets.WEB_PUSH_VAPID_PUBLIC_KEY, secrets.WEB_PUSH_VAPID_PRIVATE_KEY] },
   async (request) => {
-    // Verify admin access
-    if (!request.auth?.uid) {
-      throw new HttpsError('unauthenticated', 'Must be authenticated');
-    }
-    
-    // Check if user is admin (you can implement this check)
-    const userDoc = await admin.firestore().collection('users').doc(request.auth.uid).get();
-    const userData = userDoc.data();
-    if (!userData?.isAdmin) {
-      throw new HttpsError('permission-denied', 'Admin access required');
-    }
-    
+    // Verify admin access (custom claim)
+    requireAdmin(request);
+
     try {
       // Manually trigger the lineup deadline check
       logger.info('Manual trigger for lineup deadline check');

@@ -45,7 +45,7 @@ Zwei getrennte npm-Projekte. Versionen sind die installierten aus den Lockfiles 
 
 Firebase CLI auf diesem Rechner: 14.2.2 (`firebase --version`, 8. Nov 2026), nicht in `package.json` gepinnt. Andere Rechner können eine andere CLI haben.
 
-Im Frontend installiert, im `src/`-Code aber nicht importiert: `immer`, `@tanstack/react-query-persist-client`, `@sentry/tracing` (v7, neben Sentry v9), `@types/firebase`. In Functions installiert, in `functions/src` nicht importiert: `@google-cloud/storage`. `firebase-functions-test` ist da, Testdateien gibt es keine.
+Im Frontend installiert, im `src/`-Code aber nicht importiert: `immer`, `@tanstack/react-query-persist-client`, `@sentry/tracing` (v7, neben Sentry v9), `@types/firebase`. In Functions installiert, in `functions/src` nicht importiert: `@google-cloud/storage`. `firebase-functions-test` ist da, wird von den Tests aber nicht benutzt.
 
 ## Architektur
 
@@ -155,7 +155,7 @@ npm install --prefix functions
 | Deploy Functions | `npm run deploy:functions` — predeploy lintet und baut Functions |
 | Deploy alles | `npm run deploy:all` |
 
-Tests: kein `test`-Script, keine `*.test`/`*.spec`-Dateien.
+Tests: nur Functions, `npm --prefix functions test` (kompiliert mit `tsconfig.test.json` nach `functions/lib-test`, dann `node --test`). Tests liegen in `functions/test/`, ohne Emulator und ohne Firebase-Verbindung (`test/setup.ts` blockiert Firestore-Zugriffe). Frontend hat keine Tests.
 
 Deploy trifft das Firebase-Projekt `easy-fantasy`. Hosting ist eine SPA (`**` → `/index.html`). JS/CSS bekommen `Cache-Control: immutable`.
 
