@@ -1,12 +1,16 @@
 /**
- * Captain-Faktor einer Liga (Liga-Einstellung, 1–3).
- * Alte Ligen ohne gespeicherten Wert fallen auf 1.5 zurück.
+ * Captain-Faktor einer Liga (Liga-Einstellung, 1–3), wie in der Punkteberechnung
+ * (functions/src/lineupProcessing.ts, Helfer functions/src/captain.ts):
+ * - `enableCaptainFeature` nicht `true` → 1.0
+ * - `captainPointMultiplier` fehlt oder ist keine endliche Zahl → 1.0
+ * - sonst der Liga-Wert
  */
-export const DEFAULT_CAPTAIN_MULTIPLIER = 1.5;
+export const NO_CAPTAIN_MULTIPLIER = 1.0;
 
 export function getCaptainMultiplier(
-  league: { captainPointMultiplier?: number | null } | null | undefined
+  league: { enableCaptainFeature?: boolean | null; captainPointMultiplier?: number | null } | null | undefined
 ): number {
-  const value = league?.captainPointMultiplier;
-  return typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_CAPTAIN_MULTIPLIER;
+  if (league?.enableCaptainFeature !== true) return NO_CAPTAIN_MULTIPLIER;
+  const value = league.captainPointMultiplier;
+  return typeof value === 'number' && Number.isFinite(value) ? value : NO_CAPTAIN_MULTIPLIER;
 }
