@@ -7,6 +7,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 // Import config, helpers, types
 import { lineupProcessingOptions, config } from './config';
 import { safeParseInt, calculateCurrentNFLWeek, requireAdmin } from './common';
+import { getCaptainMultiplier } from './captain';
 
 const db = admin.firestore();
 import {
@@ -582,7 +583,7 @@ export async function performWeeklyScoreCalculation(week: number, season: number
                              const settings = leagueSettingsDoc.data();
                              currentLeagueSettings = {
                                  enableCaptainFeature: settings?.enableCaptainFeature === true, // Default to false
-                                 captainPointMultiplier: typeof settings?.captainPointMultiplier === 'number' ? settings.captainPointMultiplier : 1.0, // Default to 1.0 if not set or invalid
+                                 captainPointMultiplier: getCaptainMultiplier(settings), // 1.0 if captain off, not set or invalid
                              };
                              leagueSettingsCache[lineupData.leagueId] = currentLeagueSettings;
                              logger.info(`Fetched and cached settings for league ${lineupData.leagueId}: Captain Feature ${currentLeagueSettings.enableCaptainFeature}, Multiplier ${currentLeagueSettings.captainPointMultiplier}`);
@@ -853,7 +854,7 @@ export const updateUserWeeklyLineupScore = onCall(async (request: CallableReques
                 const statData = playerStatSnap.data() as FirestorePlayerGameStat | undefined;
                 pointsForPick = statData?.fantasyPoints ?? 0;
                 if (leagueConfig.enableCaptainFeature && lineupData.captainPlayerId === pick.id) {
-                  pointsForPick *= (leagueConfig.captainPointMultiplier ?? 1);
+                  pointsForPick *= getCaptainMultiplier(leagueConfig);
                 }
               }
             } else if (pick.type === "team") {
