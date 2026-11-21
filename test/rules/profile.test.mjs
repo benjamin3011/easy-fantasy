@@ -5,7 +5,7 @@ import { createTestEnv } from './helpers.mjs';
 
 let testEnv;
 
-describe('Firestore-Regeln: users/{uid}', () => {
+describe('Firestore rules: users/{uid}', () => {
   before(async () => {
     testEnv = await createTestEnv('profile');
   });
@@ -18,12 +18,12 @@ describe('Firestore-Regeln: users/{uid}', () => {
     await testEnv?.cleanup();
   });
 
-  it('erlaubt einem angemeldeten Nutzer, sein eigenes Profil zu schreiben', async () => {
+  it('allows a signed-in user to write their own profile', async () => {
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(setDoc(doc(db, 'users/alice'), { firstName: 'Alice' }));
   });
 
-  it('verbietet einem anderen angemeldeten Nutzer, dieses Profil zu schreiben', async () => {
+  it('denies another signed-in user writing this profile', async () => {
     const db = testEnv.authenticatedContext('bob').firestore();
     await assertFails(setDoc(doc(db, 'users/alice'), { firstName: 'Mallory' }));
   });

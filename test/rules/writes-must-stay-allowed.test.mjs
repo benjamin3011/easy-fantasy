@@ -1,5 +1,5 @@
-// Schreibzugriffe W1–W12 aus docs/firestore-zugriffe.md (Abschnitt 1), so wie
-// die App sie ausführt. Wer die Regeln verschärft, darf diese Tests nicht brechen.
+// Write accesses W1–W12 from docs/firestore-zugriffe.md (section 1), as the app
+// performs them. Anyone tightening the rules must not break these tests.
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import {
@@ -27,7 +27,7 @@ const defaultNotificationPreferences = {
   achievementAlerts: false,
 };
 
-// Vorhandene Benachrichtigungen (ungelesen), ohne Regeln angelegt.
+// Existing (unread) notifications, created with rules disabled.
 async function seedNotifications(uid, ids) {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
@@ -42,9 +42,9 @@ async function seedNotifications(uid, ids) {
   });
 }
 
-describe('Muss erlaubt bleiben: Schreibzugriffe des Clients', () => {
+describe('Must stay allowed: client write accesses', () => {
   before(async () => {
-    testEnv = await createTestEnv('erlaubt');
+    testEnv = await createTestEnv('writes-allowed');
   });
 
   beforeEach(async () => {
@@ -55,12 +55,12 @@ describe('Muss erlaubt bleiben: Schreibzugriffe des Clients', () => {
     await testEnv?.cleanup();
   });
 
-  it('W1: Registrierung legt users/{uid} per setDoc an', async () => {
+  it('W1: sign-up creates users/{uid} via setDoc', async () => {
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
       setDoc(doc(db, 'users', 'alice'), {
         firstName: 'Alice',
-        lastName: 'Muster',
+        lastName: 'Example',
         email: 'alice@example.com',
         notificationPreferences: defaultNotificationPreferences,
         createdAt: serverTimestamp(),
@@ -68,14 +68,14 @@ describe('Muss erlaubt bleiben: Schreibzugriffe des Clients', () => {
     );
   });
 
-  it('W2: Push aktivieren schreibt fcmToken per setDoc merge', async () => {
+  it('W2: enabling push writes fcmToken via setDoc merge', async () => {
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
       setDoc(doc(db, 'users', 'alice'), { fcmToken: 'token-123' }, { merge: true })
     );
   });
 
-  it('W3: Benachrichtigungs-Einstellungen per setDoc merge', async () => {
+  it('W3: notification settings via setDoc merge', async () => {
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
       setDoc(
@@ -86,7 +86,7 @@ describe('Muss erlaubt bleiben: Schreibzugriffe des Clients', () => {
     );
   });
 
-  it('W4: Onboarding abschließen per updateDoc', async () => {
+  it('W4: completing onboarding via updateDoc', async () => {
     await testEnv.withSecurityRulesDisabled(async (context) => {
       await setDoc(doc(context.firestore(), 'users', 'alice'), { firstName: 'Alice' });
     });
@@ -99,21 +99,21 @@ describe('Muss erlaubt bleiben: Schreibzugriffe des Clients', () => {
     );
   });
 
-  it('W5: „Alle gelesen“ im Header-Dropdown (Abfrage readAt == null, updateDoc je Dokument)', async () => {
+  it('W5: "mark all read" in the header dropdown (query readAt == null, updateDoc per document)', async () => {
     await seedNotifications('alice', ['n1', 'n2']);
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
       (async () => {
         const q = query(collection(db, 'users', 'alice', 'notifications'), where('readAt', '==', null));
         const snap = await getDocs(q);
-        if (snap.size !== 2) throw new Error(`2 ungelesene erwartet, ${snap.size} gefunden`);
+        if (snap.size !== 2) throw new Error(`expected 2 unread, found ${snap.size}`);
         const now = Timestamp.now();
         await Promise.all(snap.docs.map((d) => updateDoc(doc(db, d.ref.path), { readAt: now })));
       })()
     );
   });
 
-  it('W6: einzelne Benachrichtigung im Dropdown als gelesen markieren', async () => {
+  it('W6: mark a single notification as read in the dropdown', async () => {
     await seedNotifications('alice', ['n1']);
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
@@ -121,7 +121,7 @@ describe('Muss erlaubt bleiben: Schreibzugriffe des Clients', () => {
     );
   });
 
-  it('W7: „Alle gelesen“ auf /notifications (mit Typfilter)', async () => {
+  it('W7: "mark all read" on /notifications (with type filter)', async () => {
     await seedNotifications('alice', ['n1', 'n2']);
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
@@ -132,14 +132,14 @@ describe('Muss erlaubt bleiben: Schreibzugriffe des Clients', () => {
           where('type', '==', 'scoring')
         );
         const snap = await getDocs(q);
-        if (snap.size !== 2) throw new Error(`2 ungelesene erwartet, ${snap.size} gefunden`);
+        if (snap.size !== 2) throw new Error(`expected 2 unread, found ${snap.size}`);
         const now = Timestamp.now();
         await Promise.all(snap.docs.map((d) => updateDoc(doc(db, d.ref.path), { readAt: now })));
       })()
     );
   });
 
-  it('W8: einzelne Benachrichtigung auf /notifications als gelesen markieren', async () => {
+  it('W8: mark a single notification as read on /notifications', async () => {
     await seedNotifications('alice', ['n1']);
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
@@ -147,19 +147,19 @@ describe('Muss erlaubt bleiben: Schreibzugriffe des Clients', () => {
     );
   });
 
-  it('W9: einzelne Benachrichtigung löschen', async () => {
+  it('W9: delete a single notification', async () => {
     await seedNotifications('alice', ['n1']);
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(deleteDoc(doc(db, 'users', 'alice', 'notifications', 'n1')));
   });
 
-  it('W10: „Alle löschen“ per writeBatch und batch.delete', async () => {
+  it('W10: "delete all" via writeBatch and batch.delete', async () => {
     await seedNotifications('alice', ['n1', 'n2', 'n3']);
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
       (async () => {
         const snap = await getDocs(query(collection(db, 'users', 'alice', 'notifications')));
-        if (snap.size !== 3) throw new Error(`3 Benachrichtigungen erwartet, ${snap.size} gefunden`);
+        if (snap.size !== 3) throw new Error(`expected 3 notifications, found ${snap.size}`);
         const batch = writeBatch(db);
         snap.docs.forEach((d) => batch.delete(d.ref));
         await batch.commit();
@@ -167,7 +167,7 @@ describe('Muss erlaubt bleiben: Schreibzugriffe des Clients', () => {
     );
   });
 
-  describe('W11: Admin-Mock ändert die Spielzeit in nfl_schedules', () => {
+  describe('W11: admin mock changes the game time in nfl_schedules', () => {
     const scheduleId = '2026_week_9';
     const games = [
       { gameID: '20261108_JAX@BAL', gameTime_epoch: 1000 },
@@ -182,18 +182,18 @@ describe('Muss erlaubt bleiben: Schreibzugriffe des Clients', () => {
 
     const updatedGames = games.map((g, i) => (i === 0 ? { ...g, gameTime_epoch: 5000 } : g));
 
-    it('erlaubt mit Admin-Claim', async () => {
+    it('allows with admin claim', async () => {
       const db = adminContext(testEnv).firestore();
       await assertSucceeds(updateDoc(doc(db, 'nfl_schedules', scheduleId), { games: updatedGames }));
     });
 
-    it('lehnt ohne Admin-Claim ab', async () => {
+    it('denies without admin claim', async () => {
       const db = testEnv.authenticatedContext('alice').firestore();
       await assertFails(updateDoc(doc(db, 'nfl_schedules', scheduleId), { games: updatedGames }));
     });
   });
 
-  describe('W12: Admin-Mock setzt gamestats per setDoc', () => {
+  describe('W12: admin mock sets gamestats via setDoc', () => {
     const playerStats = {
       gameId: '20261108_JAX@BAL',
       season: 2026,
@@ -212,22 +212,22 @@ describe('Muss erlaubt bleiben: Schreibzugriffe des Clients', () => {
       fantasyPointsSpecialTeams: 2,
     };
 
-    it('erlaubt für Spieler mit Admin-Claim', async () => {
+    it('allows for players with admin claim', async () => {
       const db = adminContext(testEnv).firestore();
       await assertSucceeds(setDoc(doc(db, 'players/p1/gamestats/20261108_JAX@BAL'), playerStats));
     });
 
-    it('erlaubt für Teams mit Admin-Claim', async () => {
+    it('allows for teams with admin claim', async () => {
       const db = adminContext(testEnv).firestore();
       await assertSucceeds(setDoc(doc(db, 'teams/t1/gamestats/20261108_JAX@BAL'), teamStats));
     });
 
-    it('lehnt für Spieler ohne Admin-Claim ab', async () => {
+    it('denies for players without admin claim', async () => {
       const db = testEnv.authenticatedContext('alice').firestore();
       await assertFails(setDoc(doc(db, 'players/p1/gamestats/20261108_JAX@BAL'), playerStats));
     });
 
-    it('lehnt für Teams ohne Admin-Claim ab', async () => {
+    it('denies for teams without admin claim', async () => {
       const db = testEnv.authenticatedContext('alice').firestore();
       await assertFails(setDoc(doc(db, 'teams/t1/gamestats/20261108_JAX@BAL'), teamStats));
     });

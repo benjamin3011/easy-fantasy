@@ -5,16 +5,16 @@ import { createTestEnv } from './helpers.mjs';
 
 let testEnv;
 
-const LEAGUE_ID = 'liga1';
+const LEAGUE_ID = 'league1';
 
-describe('Heute erlaubt, soll gesperrt werden', () => {
+describe('Allowed today, should be blocked', () => {
   before(async () => {
-    testEnv = await createTestEnv('luecken');
+    testEnv = await createTestEnv('known-gaps');
   });
 
   beforeEach(async () => {
     await testEnv.clearFirestore();
-    // Liga mit alice als Mitglied (Voraussetzung für userTips).
+    // League with alice as a member (prerequisite for userTips).
     await testEnv.withSecurityRulesDisabled(async (context) => {
       await setDoc(doc(context.firestore(), 'leagues', LEAGUE_ID), { memberUids: ['alice'] });
     });
@@ -24,8 +24,8 @@ describe('Heute erlaubt, soll gesperrt werden', () => {
     await testEnv?.cleanup();
   });
 
-  // LÜCKE: Beim Schließen der Lücke wird dieser Test auf "abgelehnt" (assertFails) gedreht.
-  it('Besitzer schreibt direkt in users/{uid}/weeklyLineups/{id}', async () => {
+  // GAP: When the gap is closed, flip this test to "denied" (assertFails).
+  it('owner writes directly to users/{uid}/weeklyLineups/{id}', async () => {
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
       setDoc(doc(db, 'users', 'alice', 'weeklyLineups', `${LEAGUE_ID}_2026_9`), {
@@ -38,8 +38,8 @@ describe('Heute erlaubt, soll gesperrt werden', () => {
     );
   });
 
-  // LÜCKE: Beim Schließen der Lücke wird dieser Test auf "abgelehnt" (assertFails) gedreht.
-  it('Besitzer schreibt direkt in users/{uid}/leagueUsage/{id}/usageCounts/{item}', async () => {
+  // GAP: When the gap is closed, flip this test to "denied" (assertFails).
+  it('owner writes directly to users/{uid}/leagueUsage/{id}/usageCounts/{item}', async () => {
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
       setDoc(doc(db, 'users', 'alice', 'leagueUsage', `${LEAGUE_ID}_2026`, 'usageCounts', 'player_1'), {
@@ -48,8 +48,8 @@ describe('Heute erlaubt, soll gesperrt werden', () => {
     );
   });
 
-  // LÜCKE: Beim Schließen der Lücke wird dieser Test auf "abgelehnt" (assertFails) gedreht.
-  it('Ligamitglied schreibt direkt in weeklyTips/{id}/userTips/{uid}', async () => {
+  // GAP: When the gap is closed, flip this test to "denied" (assertFails).
+  it('league member writes directly to weeklyTips/{id}/userTips/{uid}', async () => {
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(
       setDoc(doc(db, 'weeklyTips', `${LEAGUE_ID}_week_9_season_2026`, 'userTips', 'alice'), {
