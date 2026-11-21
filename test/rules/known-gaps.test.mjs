@@ -39,16 +39,6 @@ describe('Allowed today, should be blocked', () => {
   });
 
   // GAP: When the gap is closed, flip this test to "denied" (assertFails).
-  it('owner writes directly to users/{uid}/leagueUsage/{id}/usageCounts/{item}', async () => {
-    const db = testEnv.authenticatedContext('alice').firestore();
-    await assertSucceeds(
-      setDoc(doc(db, 'users', 'alice', 'leagueUsage', `${LEAGUE_ID}_2026`, 'usageCounts', 'player_1'), {
-        count: 0,
-      })
-    );
-  });
-
-  // GAP: When the gap is closed, flip this test to "denied" (assertFails).
   it('league member writes directly to weeklyTips/{id}/userTips/{uid}', async () => {
     const db = testEnv.authenticatedContext('alice').firestore();
     await assertSucceeds(

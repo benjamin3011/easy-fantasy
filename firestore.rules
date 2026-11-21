@@ -43,9 +43,10 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.uid == uid;
     }
 
-    // Allow user to read/write their usageCounts documents within leagueUsage
+    // Owner can read their usageCounts; only Cloud Functions (Admin SDK) write them
     match /users/{uid}/leagueUsage/{leagueSeasonDocId}/usageCounts/{usageItemDocId} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
     }
 
     // --- League Data ---
