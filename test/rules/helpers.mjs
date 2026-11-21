@@ -5,13 +5,13 @@ import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 export const PROJECT_ID = 'demo-easy-fantasy';
 const rulesPath = fileURLToPath(new URL('../../firestore.rules', import.meta.url));
 
-// FIRESTORE_EMULATOR_HOST hat die Form "host:port" und wird von
-// `firebase emulators:exec` gesetzt.
+// FIRESTORE_EMULATOR_HOST has the form "host:port" and is set by
+// `firebase emulators:exec`.
 export function readEmulatorAddress() {
   const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
   if (!emulatorHost) {
     throw new Error(
-      'FIRESTORE_EMULATOR_HOST fehlt. Tests per `firebase emulators:exec --only firestore,auth --project demo-easy-fantasy "npm run test:rules"` starten.'
+      'FIRESTORE_EMULATOR_HOST is missing. Run the tests via `firebase emulators:exec --only firestore,auth --project demo-easy-fantasy "npm run test:rules"`.'
     );
   }
   const separator = emulatorHost.lastIndexOf(':');
@@ -21,10 +21,10 @@ export function readEmulatorAddress() {
   };
 }
 
-// Legt die Testumgebung mit den Regeln aus firestore.rules an.
-// `node --test` startet jede Testdatei als eigenen Prozess, parallel gegen
-// denselben Emulator. Damit sich die Dateien nicht gegenseitig mit
-// clearFirestore() die Daten wegräumen, bekommt jede ein eigenes (demo-)Projekt.
+// Creates the test environment with the rules from firestore.rules.
+// `node --test` starts each test file as its own process, in parallel against
+// the same emulator. So that the files do not wipe each other's data with
+// clearFirestore(), each one gets its own (demo-) project.
 export async function createTestEnv(name) {
   const { host, port } = readEmulatorAddress();
   return initializeTestEnvironment({
@@ -37,7 +37,7 @@ export async function createTestEnv(name) {
   });
 }
 
-// Kontext mit Admin-Claim (wie nach addAdminRole).
+// Context with admin claim (as after addAdminRole).
 export function adminContext(testEnv, uid = 'admin') {
   return testEnv.authenticatedContext(uid, { admin: true });
 }
