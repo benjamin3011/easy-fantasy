@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test:rules": "node --test test/rules/",
     "generate:pwa-assets": "pwa-asset-generator src/assets/logo.svg public/icons --manifest public/manifest.webmanifest --index index.html --background \"#ffffff\" --icon-only",
     "deploy": "npm run build && firebase deploy --only hosting",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",
@@ -39,6 +40,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",
+    "@firebase/rules-unit-testing": "3.0.4",
     "@tailwindcss/postcss": "^4.1.4",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
